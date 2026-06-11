@@ -2,6 +2,7 @@
 status, rank, and build the top-3 response with human-readable actions."""
 import datetime as dt
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 
 from app.core.pairs import enumerate_covering_pairs
 from app.core.parser import parse_availability
@@ -19,6 +20,12 @@ from app.schemas import (
 
 MAX_RECOMMENDATIONS = 3
 ADVANCE_RESERVATION_DAYS = 60  # IRCTC ARP, 60 days excluding journey date (since Nov 2024)
+BOOKING_TZ = ZoneInfo("Asia/Kolkata")  # IRCTC's booking day is IST, not server-local
+
+
+def booking_day_today() -> dt.date:
+    """Today in the railway's timezone — the anchor for date validation."""
+    return dt.datetime.now(BOOKING_TZ).date()
 
 
 @dataclass
@@ -108,7 +115,7 @@ class RecommendationService:
         )
 
     def _validate_date(self, journey_date: dt.date) -> None:
-        today = dt.date.today()
+        today = booking_day_today()
         if journey_date < today:
             raise InvalidJourneyDateError("Journey date is in the past")
         if journey_date > today + dt.timedelta(days=ADVANCE_RESERVATION_DAYS):

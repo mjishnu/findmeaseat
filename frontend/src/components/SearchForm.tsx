@@ -1,51 +1,68 @@
-import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
-import { getTrainRoute, type SearchQuery, type TrainRoute } from '../api/client'
+import { useEffect, useState, type FormEvent } from 'react'
+import { ApiError, getTrainRoute, type SearchQuery, type TrainRoute } from '../api/client'
 
 interface SearchFormProps {
   onSearch: (query: SearchQuery) => void
   searching: boolean
 }
 
-const DAY_MS = 86_400_000
 const ARP_DAYS = 60 // IRCTC advance reservation period
-const toInputDate = (d: Date) => d.toISOString().slice(0, 10)
-// Computed once at module load (render must stay pure); stale only if the
-// tab survives past midnight, and the backend re-validates anyway.
-const MIN_DATE = toInputDate(new Date())
-const MAX_DATE = toInputDate(new Date(Date.now() + ARP_DAYS * DAY_MS))
+const BOOKING_TZ = 'Asia/Kolkata' // the railway's booking day is IST, matching the backend
+// en-CA renders YYYY-MM-DD, the format <input type="date"> min/max expects.
+const istToday = () =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: BOOKING_TZ }).format(new Date())
+const addDays = (ymd: string, days: number) => {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+// Computed once at module load (render must stay pure); stale only if the tab
+// survives past IST midnight, and the backend re-validates anyway.
+const MIN_DATE = istToday()
+const MAX_DATE = addDays(MIN_DATE, ARP_DAYS)
 
 const LABEL = 'block font-ticket text-[11px] font-medium uppercase tracking-[0.18em] text-rail-700'
 const FIELD =
   'mt-1.5 w-full rounded-md border border-rail-200 bg-white px-3 py-2.5 font-ticket text-sm text-rail-950 ' +
-  'placeholder:text-rail-500/50 focus:border-rail-500 focus:outline-none focus:ring-2 focus:ring-rail-500/30 ' +
+  'placeholder:text-rail-700/80 focus:border-rail-500 focus:outline-none focus:ring-2 focus:ring-rail-500/30 ' +
   'disabled:cursor-not-allowed disabled:bg-paper-200/60 disabled:text-rail-700/50'
 
 export function SearchForm({ onSearch, searching }: SearchFormProps) {
+  const [trainNumber, setTrainNumber] = useState('')
   const [route, setRoute] = useState<TrainRoute | null>(null)
   const [routeError, setRouteError] = useState<string | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
+  const [retryToken, setRetryToken] = useState(0)
 
-  async function handleTrainNumberChange(e: ChangeEvent<HTMLInputElement>) {
-    const value = e.target.value.trim()
-    setRoute(null)
+  function handleTrainNumberChange(value: string) {
+    setTrainNumber(value.trim())
+    setRoute(null) // a stale route must never outlive an edited number
     setRouteError(null)
-    if (!/^\d{5}$/.test(value)) return
-    abortRef.current?.abort() // a newer keystroke supersedes any in-flight lookup
-    const controller = new AbortController()
-    abortRef.current = controller
-    try {
-      setRoute(await getTrainRoute(value, controller.signal))
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return
-      setRouteError(err instanceof Error ? err.message : 'Could not load this train')
-    }
   }
+
+  // Effect (not the change handler) owns the fetch so cleanup aborts the
+  // stale request even when the value becomes invalid mid-flight.
+  useEffect(() => {
+    if (!/^\d{5}$/.test(trainNumber)) return
+    const controller = new AbortController()
+    getTrainRoute(trainNumber, controller.signal)
+      .then(setRoute)
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        setRouteError(
+          err instanceof ApiError
+            ? err.message
+            : 'Could not reach the server — is the backend running?',
+        )
+      })
+    return () => controller.abort()
+  }, [trainNumber, retryToken])
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (searching || !route) return // button is aria-disabled, not disabled
     const data = new FormData(e.currentTarget)
     onSearch({
-      trainNumber: String(data.get('trainNumber') ?? ''),
+      trainNumber,
       source: String(data.get('source') ?? ''),
       destination: String(data.get('destination') ?? ''),
       date: String(data.get('date') ?? ''),
@@ -71,15 +88,33 @@ export function SearchForm({ onSearch, searching }: SearchFormProps) {
             required
             pattern="\d{5}"
             maxLength={5}
-            onChange={handleTrainNumberChange}
+            value={trainNumber}
+            onChange={(e) => handleTrainNumberChange(e.target.value)}
             className={`${FIELD} tracking-[0.3em]`}
           />
-          {route && (
-            <p className="mt-1.5 text-xs text-signal-green-deep">
-              {route.train_name} · {route.stations.length} stops
-            </p>
-          )}
-          {routeError && <p className="mt-1.5 text-xs text-signal-red">{routeError}</p>}
+          {/* Persistent live region so screen readers hear lookup results */}
+          <div aria-live="polite" className="mt-1.5 min-h-4">
+            {route && (
+              <p className="text-xs text-signal-green-deep">
+                {route.train_name} · {route.stations.length} stops
+              </p>
+            )}
+            {routeError && (
+              <p role="alert" className="text-xs text-signal-red">
+                {routeError}{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRouteError(null)
+                    setRetryToken((t) => t + 1)
+                  }}
+                  className="font-semibold underline underline-offset-2 hover:text-rail-950"
+                >
+                  Retry
+                </button>
+              </p>
+            )}
+          </div>
         </div>
 
         <div>
@@ -137,10 +172,12 @@ export function SearchForm({ onSearch, searching }: SearchFormProps) {
         </div>
       </div>
 
+      {/* aria-disabled (not disabled) keeps keyboard focus on the button
+          through the search; handleSubmit guards the actual submit. */}
       <button
         type="submit"
-        disabled={searching || !route}
-        className="mt-5 w-full rounded-md bg-rail-900 px-6 py-3 font-ticket text-sm font-semibold uppercase tracking-[0.2em] text-paper-50 transition-colors hover:bg-rail-700 focus:outline-none focus:ring-2 focus:ring-rail-500 focus:ring-offset-2 focus:ring-offset-paper-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+        aria-disabled={searching || !route}
+        className="mt-5 w-full rounded-md bg-rail-900 px-6 py-3 font-ticket text-sm font-semibold uppercase tracking-[0.2em] text-paper-50 transition-colors hover:bg-rail-700 focus:outline-none focus:ring-2 focus:ring-rail-500 focus:ring-offset-2 focus:ring-offset-paper-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 sm:w-auto"
       >
         {searching ? 'Checking combinations…' : 'Find me a seat'}
       </button>

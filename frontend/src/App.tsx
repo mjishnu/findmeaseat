@@ -65,13 +65,22 @@ export default function App() {
 
         <SearchForm onSearch={handleSearch} searching={results.status === 'loading'} />
 
+        {/* The visual skeleton is aria-hidden; this narrates search progress */}
+        <p aria-live="polite" className="sr-only">
+          {results.status === 'loading'
+            ? 'Checking combinations…'
+            : results.status === 'success'
+              ? `${results.data.recommendations.length} recommendations found`
+              : ''}
+        </p>
+
         {results.status === 'loading' && <SkeletonResults />}
         {results.status === 'error' && <ErrorBanner message={results.message} />}
         {results.status === 'success' && <ResultsList data={results.data} />}
       </main>
 
       <footer className="border-t border-rail-200 py-6">
-        <p className="mx-auto max-w-5xl px-4 text-xs text-rail-700/70 sm:px-6">
+        <p className="mx-auto max-w-5xl px-4 text-xs text-rail-700 sm:px-6">
           Probabilities are heuristics based on public waitlist-clearance patterns, not
           guarantees. Demo data — train 12345, stations A–F.
         </p>

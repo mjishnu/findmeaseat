@@ -52,13 +52,19 @@ def test_quota_mirrors_real_mechanics(provider):
 
 
 def test_fare_is_telescopic_rounded_and_floored():
-    assert calculate_fare(40) == max(105, 5 * round(40 * 1.30 / 5))  # no rebate band
-    assert calculate_fare(10) == 105                                  # class minimum
-    assert calculate_fare(170) == 190                                 # 170·1.30·0.85 ≈ 187.9 → 190
-    assert calculate_fare(1020) < calculate_fare(510) * 2             # concave: long legs cheaper per km
+    assert calculate_fare(10) == 105                       # class minimum
+    assert calculate_fare(170) == 205                      # (50·1.0 + 50·0.95 + 70·0.85)·1.30 → next ₹5
+    assert calculate_fare(1020) < calculate_fare(510) * 2  # concave: long legs cheaper per km
     fares = [calculate_fare(km) for km in (50, 120, 310, 480, 750, 1020)]
-    assert fares == sorted(fares)                                     # monotonic
-    assert all(f % 5 == 0 for f in fares)                             # rounded to ₹5
+    assert fares == sorted(fares)                          # monotonic
+    assert all(f % 5 == 0 for f in fares)                  # rounded to ₹5
+
+
+def test_fare_is_monotonic_across_slab_boundaries():
+    # Marginal slab rates must never make a longer ticket cheaper.
+    for boundary in (50, 100, 500, 1000, 1500):
+        window = [calculate_fare(km) for km in range(boundary - 2, boundary + 3)]
+        assert window == sorted(window), f"fare inversion around {boundary} km"
 
 
 def test_fare_provider_uses_route_distance(provider):

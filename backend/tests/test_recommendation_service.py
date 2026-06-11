@@ -3,7 +3,8 @@ import datetime as dt
 import pytest
 
 from app.exceptions import InvalidJourneyDateError, InvalidStationError, TrainNotFoundError
-from app.services.recommendations import RecommendationService
+from app.schemas import AvailabilityStatus
+from app.services.recommendations import RecommendationService, booking_day_today
 from tests.conftest import StubProvider, tomorrow
 
 # Hand-computed expectation (see plan Decision Log #5):
@@ -76,6 +77,11 @@ def test_unbookable_pairs_are_excluded():
     service = RecommendationService(StubProvider({}))  # every pair → REGRET
     res = service.find_optimal_route("12345", "C", "D", tomorrow())
     assert res.recommendations == []
+    # The user's own leg must still echo its (unbookable) status — the capture
+    # happens before the NOT_BOOKABLE skip, and this guards that ordering.
+    assert res.user_leg.availability is not None
+    assert res.user_leg.availability.raw == "REGRET"
+    assert res.user_leg.availability.status is AvailabilityStatus.NOT_BOOKABLE
 
 
 def test_unknown_train_raises(service):
@@ -94,7 +100,8 @@ def test_station_input_is_normalized(service):
 
 
 def test_past_and_far_future_dates_rejected(service):
+    today = booking_day_today()
     with pytest.raises(InvalidJourneyDateError, match="past"):
-        service.find_optimal_route("12345", "C", "D", dt.date.today() - dt.timedelta(days=1))
+        service.find_optimal_route("12345", "C", "D", today - dt.timedelta(days=1))
     with pytest.raises(InvalidJourneyDateError, match="advance reservation"):
-        service.find_optimal_route("12345", "C", "D", dt.date.today() + dt.timedelta(days=61))
+        service.find_optimal_route("12345", "C", "D", today + dt.timedelta(days=61))

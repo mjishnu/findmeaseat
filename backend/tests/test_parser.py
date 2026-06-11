@@ -13,6 +13,9 @@ from app.schemas import Quota
         ("AVAILABLE 10", S.AVAILABLE, None, 10, None, None),
         ("AVL 44", S.AVAILABLE, None, 44, None, None),
         ("AVAILABLE", S.AVAILABLE, None, None, None, None),
+        # Zero seats: quota exists but nothing bookable — never recommend
+        ("AVAILABLE-0000", S.NOT_BOOKABLE, None, None, None, None),
+        ("AVL 0", S.NOT_BOOKABLE, None, None, None, None),
         # Hybrid: a WL series existed but booking now confirms immediately
         ("WL3/AVAILABLE", S.AVAILABLE, None, None, None, None),
         ("GNWL10/AVAILABLE", S.AVAILABLE, None, None, None, None),
@@ -23,9 +26,11 @@ from app.schemas import Quota
         ("PQWL 10/WL 8", S.WAITLIST, Quota.PQWL, None, 10, 8),
         ("TQWL4/WL4", S.WAITLIST, Quota.TQWL, None, 4, 4),
         ("WL 7", S.WAITLIST, Quota.GNWL, None, None, 7),  # bare WL ⇒ general series
-        # RAC — two-number and single-number forms
+        ("GNWL-15/WL-10", S.WAITLIST, Quota.GNWL, None, 15, 10),  # hyphenated variant
+        # RAC — two-number, single-number, and hyphenated forms
         ("RAC 12/RAC 5", S.RAC, None, None, 12, 5),
         ("RAC7", S.RAC, None, None, None, 7),
+        ("RAC-12", S.RAC, None, None, None, 12),
         # Terminal / unbookable states
         ("REGRET", S.NOT_BOOKABLE, None, None, None, None),
         ("REGRET/WL110", S.NOT_BOOKABLE, None, None, None, None),

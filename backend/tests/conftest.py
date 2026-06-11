@@ -4,6 +4,7 @@ import datetime as dt
 
 from app.providers.mock.fixtures import DEMO_TRAIN, calculate_fare
 from app.schemas import TrainRoute
+from app.services.recommendations import booking_day_today
 
 
 class StubProvider:
@@ -24,4 +25,5 @@ class StubProvider:
 
 
 def tomorrow() -> dt.date:
-    return dt.date.today() + dt.timedelta(days=1)
+    # Anchored to the same IST clock the service validates against.
+    return booking_day_today() + dt.timedelta(days=1)

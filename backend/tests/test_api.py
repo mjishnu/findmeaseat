@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.dependencies import get_provider
 from app.main import app
+from app.services.recommendations import booking_day_today
 from tests.conftest import StubProvider, tomorrow
 
 STATUSES = {
@@ -78,7 +79,7 @@ def test_reversed_direction_400(stubbed):
 def test_past_date_400(stubbed):
     res = client.get(
         "/api/find-optimal-route",
-        **_search(date=(dt.date.today() - dt.timedelta(days=1)).isoformat()),
+        **_search(date=(booking_day_today() - dt.timedelta(days=1)).isoformat()),
     )
     assert res.status_code == 400
 

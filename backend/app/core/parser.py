@@ -19,9 +19,9 @@ _NOT_BOOKABLE_TOKENS = (
 )
 _AVAILABLE_RE = re.compile(r"^(?:AVAILABLE|AVL)(?:[-\s]+0*(\d+))?$")
 _HYBRID_AVAILABLE_RE = re.compile(r"/\s*(?:AVAILABLE|AVL)$")
-_RAC_RE = re.compile(r"^RAC\s*0*(\d+)(?:\s*/\s*RAC\s*0*(\d+))?$")
-_WL_RE = re.compile(r"^(GNWL|RLWL|RSWL|PQWL|TQWL|RQWL)\s*0*(\d+)\s*/\s*WL\s*0*(\d+)$")
-_BARE_WL_RE = re.compile(r"^WL\s*0*(\d+)$")
+_RAC_RE = re.compile(r"^RAC[-\s]*0*(\d+)(?:\s*/\s*RAC[-\s]*0*(\d+))?$")
+_WL_RE = re.compile(r"^(GNWL|RLWL|RSWL|PQWL|TQWL|RQWL)[-\s]*0*(\d+)\s*/\s*WL[-\s]*0*(\d+)$")
+_BARE_WL_RE = re.compile(r"^WL[-\s]*0*(\d+)$")
 
 
 def parse_availability(raw: str) -> ParsedAvailability:
@@ -33,6 +33,10 @@ def parse_availability(raw: str) -> ParsedAvailability:
 
     if m := _AVAILABLE_RE.match(text):
         seats = int(m.group(1)) if m.group(1) else None
+        if seats == 0:
+            # IRCTC emits "AVAILABLE-0000" when the quota exists but has no
+            # berths left — bookable in name only; never recommend it.
+            return ParsedAvailability(raw=raw, status=AvailabilityStatus.NOT_BOOKABLE)
         return ParsedAvailability(raw=raw, status=AvailabilityStatus.AVAILABLE, seats=seats)
 
     # "WL3/AVAILABLE": the WL series exists but a booking made now confirms.

@@ -2454,6 +2454,22 @@ git commit -m "docs: add README with run and swap instructions"
 - **Boarding-point-change automation/reminders** (rules changed to "up to 30 min before departure, CNF/RAC only" from April 2026 — verify the live rule then).
 - Frontend component tests (vitest 4 + @testing-library/react 16) if the UI grows beyond one view.
 
+## Post-Review Fixes (applied 2026-06-12, after a 26-agent adversarial review)
+
+The plan above was implemented as written; a multi-dimension review then confirmed 12 findings, all fixed in the `fix:` commit that follows the plan's 13 commits:
+
+1. **Fare model** (`fixtures.py`): whole-distance rebate made longer tickets cheaper at every slab boundary (fare(500)=550 > fare(501)=490). Rewritten as marginal per-slab rates with ceil-to-₹5 rounding — monotone by construction; boundary test added. `calculate_fare(170)` is now 205, not 190.
+2. **Parser** (`parser.py`): `AVAILABLE-0000`/`AVL 0` (zero berths) parsed as AVAILABLE at 0.99 probability → now NOT_BOOKABLE.
+3. **Parser**: RAC/WL regexes now accept hyphenated forms (`RAC-12`, `GNWL-15/WL-10`) as the docstring promised.
+4. **Date validation** (`recommendations.py` + `SearchForm.tsx`): both sides now anchor "today" to Asia/Kolkata (the railway's booking day) instead of server-local vs UTC; `tzdata` added to requirements for Windows.
+5. **StatusBadge**: new `tone="dark"` style map + `-bright` color tokens — the user-leg badge on the dark bar was at ~2:1 contrast, now AA.
+6. **SearchForm**: route lookup moved into an effect with cleanup-abort (stale responses could repopulate the form after the input was edited to an invalid value); input is controlled; transient failures get a Retry button and friendly copy.
+7. **A11y**: route-lookup result/error live region, sr-only search-progress announcer in App, submit button uses `aria-disabled` + submit guard so keyboard focus isn't dropped mid-search.
+8. **Contrast tokens**: placeholder `text-rail-700/80`, footer `text-rail-700`.
+9. **Test gap**: `test_unbookable_pairs_are_excluded` now guards the capture-before-skip ordering that keeps `user_leg.availability` populated for a REGRET baseline.
+
+Backend suite is now 67 tests, all passing; frontend build + lint clean.
+
 ## Self-Review Notes
 
 Checked against the spec: endpoint + 4 user-named params ✓; hardcoded A–F route with distances ✓; `get_seat_status` returning the four example string shapes (plus real-world variants) ✓; covering-pairs-only enumeration ✓; parse → rank with AVAILABLE > GNWL > RLWL > PQWL ✓; same-quota lower-WL-first (strictly monotonic curve) ✓; distance penalty with "significantly better" semantics ✓; top-3 JSON with action strings ✓; modular + commented + edge cases (invalid station, direction, same station, unknown train, malformed/out-of-window date) ✓; React + Tailwind-only styling, responsive ✓; all fake data isolated in `providers/mock/` ✓. Type names cross-checked between schemas.py, client.ts, and every component import.

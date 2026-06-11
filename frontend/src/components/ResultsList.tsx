@@ -16,7 +16,7 @@ export function ResultsList({ data }: ResultsListProps) {
           {leg.source} ➝ {leg.destination} · {leg.distance_km} km · ₹{leg.fare}
         </p>
         <div className="flex items-center gap-3">
-          {leg.availability && <StatusBadge availability={leg.availability} />}
+          {leg.availability && <StatusBadge availability={leg.availability} tone="dark" />}
           <p className="font-ticket text-[11px] uppercase tracking-[0.18em] text-paper-50/60">
             {data.pairs_evaluated} combos checked
           </p>

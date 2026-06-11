@@ -19,10 +19,14 @@
   --color-rail-900: oklch(0.3 0.07 255);
   --color-rail-950: oklch(0.23 0.05 255);
 
-  /* Signal-lamp accents; -deep variants keep text readable on cream */
+  /* Signal-lamp accents; -deep variants keep text readable on cream,
+     -bright variants keep it readable on the dark rail-950 bar */
   --color-signal-green: oklch(0.62 0.15 150);
   --color-signal-green-deep: oklch(0.45 0.12 150);
+  --color-signal-green-bright: oklch(0.85 0.12 150);
   --color-signal-amber: oklch(0.78 0.16 75);
   --color-signal-amber-deep: oklch(0.52 0.12 75);
+  --color-signal-amber-bright: oklch(0.88 0.12 75);
   --color-signal-red: oklch(0.52 0.19 25);
+  --color-signal-red-bright: oklch(0.82 0.12 25);
 }
