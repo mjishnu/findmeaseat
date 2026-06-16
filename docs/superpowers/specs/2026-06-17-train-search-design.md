@@ -272,6 +272,11 @@ Per-class deep-links and shareable URLs are easy later extensions.
 
 ## Appendix — Spec 2 preview (Seat-finder Quota; deferred, do not build here)
 
+> **Now superseded by the full spec:** `2026-06-17-seat-finder-quota-design.md`.
+> That document is authoritative; in particular it unifies the two axes into a
+> single `alternatives` (class × quota) list rather than the separate
+> `quota_alternative` field sketched below. Kept here only as the originating note.
+
 Captured so the approved design isn't lost; it gets its own spec/plan next.
 
 - Add a `quota` (GN/TQ, default GN) param to `/api/find-optimal-route`; thread it
