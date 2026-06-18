@@ -98,6 +98,7 @@ class RawClassOffer(BaseModel):
     travel_class: TravelClass
     raw_availability: str
     fare: int | None = None
+    prediction_pct: int | None = None  # confirmtkt predictionPercentage; 0 is real, None = absent
 
 
 class RawTrainBetween(BaseModel):
@@ -121,7 +122,7 @@ class RawTrainBetween(BaseModel):
 class ClassAvailability(BaseModel):
     travel_class: TravelClass
     availability: ParsedAvailability
-    probability: float
+    probability: float | None  # None when confirmtkt gives no estimate for this leg
     fare: int | None = None  # None when unpriced/unavailable (0 -> None)
 
 
@@ -183,8 +184,8 @@ class Recommendation(BaseModel):
     alight_at: str
     action: str
     availability: ParsedAvailability
-    probability: float
-    score: float
+    probability: float | None  # None when confirmtkt gives no estimate (ranked last, flagged)
+    score: float | None        # None mirrors a None probability
     booked_distance_km: int
     extra_km: int
     fare: int | None  # None when the upstream did not price this class on this leg
@@ -200,7 +201,7 @@ class SwitchAlternative(BaseModel):
     travel_class: TravelClass
     quota: BookingQuota
     availability: ParsedAvailability
-    probability: float
+    probability: float | None  # always set in practice; widened for consistency
     fare: int | None = None
     fare_delta: int | None = None  # vs the searched (class, quota) direct-leg fare
 

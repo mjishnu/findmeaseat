@@ -1,4 +1,24 @@
-from app.schemas import AvailabilityStatus, ParsedAvailability, Quota
+from app.schemas import (
+    AvailabilityStatus,
+    ClassAvailability,
+    ParsedAvailability,
+    Quota,
+    RawClassOffer,
+    TravelClass,
+)
+
+
+def test_raw_class_offer_carries_optional_prediction():
+    o = RawClassOffer(travel_class=TravelClass.SL, raw_availability="GNWL5/WL3")
+    assert o.prediction_pct is None
+    o2 = RawClassOffer(travel_class=TravelClass.SL, raw_availability="GNWL5/WL3", prediction_pct=0)
+    assert o2.prediction_pct == 0
+
+
+def test_class_availability_probability_accepts_none():
+    parsed = ParsedAvailability(raw="GNWL5/WL3", status=AvailabilityStatus.WAITLIST)
+    ca = ClassAvailability(travel_class=TravelClass.SL, availability=parsed, probability=None)
+    assert ca.probability is None
 
 
 def test_waitlist_label_shows_quota_and_current_position():
