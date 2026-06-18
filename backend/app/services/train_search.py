@@ -90,9 +90,10 @@ class TrainSearchService:
     @staticmethod
     def _to_class(offer: RawClassOffer) -> ClassAvailability:
         parsed = parse_availability(offer.raw_availability)
+        p = confirmation_probability(parsed, offer.prediction_pct)
         return ClassAvailability(
             travel_class=offer.travel_class,
             availability=parsed,
-            probability=round(confirmation_probability(parsed), 3),
+            probability=round(p, 3) if p is not None else None,
             fare=offer.fare or None,  # 0/None -> None: never render a misleading "₹0"
         )

@@ -1,67 +1,64 @@
-"""Confirmation-probability heuristics and the distance-penalized score.
+"""Confirmation-probability from confirmtkt's per-class prediction + the
+distance-penalized score.
 
-The numbers are PRIORS distilled from public waitlist-clearance patterns
-(ConfirmTkt-style bands), not official figures — they are named constants
-precisely so they can be tuned or replaced by a learned model later.
+The waitlist chance is confirmtkt's own `predictionPercentage` (trained on real
+per-class/route/season clearance), not a local heuristic. AVAILABLE and RAC keep
+fixed status priors — a seat in hand is a fact, not a prediction. A waitlist with
+no upstream estimate returns None (the caller flags it and ranks it last).
 """
 import math
 
-from app.schemas import AvailabilityStatus, ParsedAvailability, Quota
+from app.schemas import AvailabilityStatus, ParsedAvailability
 
 P_AVAILABLE = 0.99
 P_RAC = 0.95  # RAC guarantees travel (shared berth) — better than every waitlist
 
-# Piecewise-linear curve over the CURRENT waitlist number (the second number
-# in "GNWL15/WL10"). Linear interpolation keeps ranking strictly monotonic:
-# a lower waitlist number always scores higher within the same quota.
-_WL_CURVE: list[tuple[int, float]] = [(1, 0.90), (15, 0.85), (30, 0.55), (60, 0.25), (100, 0.08)]
-
-# Relative clearance odds by quota type. GNWL clears from the whole train's
-# cancellation pool; RLWL from one remote-location quota; PQWL from a single
-# pooled quota shared by many station pairs; RQWL is the last resort.
-QUOTA_FACTOR: dict[Quota, float] = {
-    Quota.GNWL: 1.0,
-    Quota.RLWL: 0.5,
-    Quota.RSWL: 0.4,
-    Quota.PQWL: 0.35,
-    Quota.TQWL: 0.3,
-    Quota.RQWL: 0.2,
-}
-
-# Weight of the telescopic-fare distance penalty in option_score.
-DISTANCE_PENALTY_WEIGHT = 0.10
+# Weight of the concave extra-cost penalty in option_score.
+COST_PENALTY_WEIGHT = 0.10
 
 
-def _wl_probability(current_wl: int) -> float:
-    points = _WL_CURVE
-    if current_wl <= points[0][0]:
-        return points[0][1]
-    for (x1, y1), (x2, y2) in zip(points, points[1:]):
-        if current_wl <= x2:
-            return y1 + (y2 - y1) * (current_wl - x1) / (x2 - x1)
-    return points[-1][1]
+def confirmation_probability(
+    parsed: ParsedAvailability, prediction_pct: int | None = None
+) -> float | None:
+    """Probability that booking this status ends in a confirmed (or RAC) berth.
 
-
-def confirmation_probability(parsed: ParsedAvailability) -> float:
-    """Probability that booking this status ends in a confirmed (or RAC) berth."""
+    Returns None for a waitlist with no confirmtkt estimate — distinct from a real
+    0.0 estimate. NOT_BOOKABLE/UNKNOWN return 0.0 (only reachable via train-search;
+    the seat-finder drops those pairs before ranking)."""
     if parsed.status is AvailabilityStatus.AVAILABLE:
         return P_AVAILABLE
     if parsed.status is AvailabilityStatus.RAC:
         return P_RAC
-    if parsed.status is AvailabilityStatus.WAITLIST and parsed.quota and parsed.current_wl:
-        return _wl_probability(parsed.current_wl) * QUOTA_FACTOR[parsed.quota]
-    return 0.0  # NOT_BOOKABLE / UNKNOWN / malformed waitlist
+    if parsed.status is AvailabilityStatus.WAITLIST:
+        if prediction_pct is not None:
+            return prediction_pct / 100.0  # confirmtkt's estimate (0 stays 0.0)
+        return None
+    return 0.0
 
 
-def option_score(probability: float, extra_km: int, user_leg_km: int) -> float:
-    """Probability minus a concave distance penalty.
+def option_score(
+    probability: float | None,
+    extra_fare: int | None,
+    user_leg_fare: int | None,
+    extra_km: int,
+    user_leg_km: int,
+) -> float | None:
+    """Probability minus a concave penalty on the EXTRA COST of a longer booking.
 
-    Fares are telescopic (per-km rate falls with distance), so the cost of
-    booking a longer leg grows sub-linearly — sqrt mirrors that. The penalty
-    means an earlier origin only outranks the exact leg when it brings a
-    SIGNIFICANTLY better confirmation chance.
+    Returns None when probability is None (a no-estimate option carries no score).
+    The penalty tracks the real fare difference, not raw distance: IR fares are
+    telescopic, so a longer booking often costs the same and must not be demoted.
+    sqrt keeps it concave; falls back to a distance proxy when the fare is unknown.
     """
-    if extra_km <= 0:
+    if probability is None:
+        return None
+    if extra_fare is not None and user_leg_fare:
+        ratio = extra_fare / user_leg_fare
+    elif user_leg_km:
+        ratio = extra_km / user_leg_km
+    else:
+        ratio = 0.0
+    if ratio <= 0:
         return probability
-    penalty = DISTANCE_PENALTY_WEIGHT * math.sqrt(extra_km / user_leg_km)
+    penalty = COST_PENALTY_WEIGHT * math.sqrt(ratio)
     return max(0.0, probability - penalty)
