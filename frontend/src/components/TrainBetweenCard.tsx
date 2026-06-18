@@ -63,7 +63,6 @@ interface TrainBetweenCardProps {
 }
 
 export function TrainBetweenCard({ train, quota, classes, onFindSeat }: TrainBetweenCardProps) {
-
   return (
     <article className="flex h-full flex-col overflow-hidden rounded-xl border border-rail-200 bg-paper-50 shadow-sm transition-shadow hover:shadow-md">
       {/* Stub header: number + name, with punched-hole perforation */}
