@@ -11,7 +11,7 @@ captured at the end so they aren't lost.
 
 ## Goal
 
-Add a **standalone Train Search tab** to GetMeASeat: enter From/To stations (with
+Add a **standalone Train Search tab** to FindMeASeat: enter From/To stations (with
 autocomplete) and a date, and see every train running that leg, each with its
 timings, running days, and per-class fare + availability for **both General and
 Tatkal** quotas. Each result deep-links into the existing seat-finder, pre-filled.
