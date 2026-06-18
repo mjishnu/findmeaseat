@@ -335,7 +335,7 @@ async def test_owner_cancellation_does_not_poison_waiters():
     started = asyncio.Event()
     release = asyncio.Event()
 
-    async def _blocking_search(source, destination, date):
+    async def _blocking_search(source, destination, date, quota=None):
         started.set()
         await release.wait()
         return []
@@ -355,6 +355,30 @@ async def test_owner_cancellation_does_not_poison_waiters():
     finally:
         release.set()
         await http.aclose()
+
+
+async def test_search_segment_isolates_ladies_senior_and_bundles_general_tatkal():
+    seen_quota_params: list[str | None] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "cttrainsapi.confirmtkt.com":
+            seen_quota_params.append(request.url.params.get("quota"))
+            return httpx.Response(200, json={"data": {"trainList": []}})
+        return httpx.Response(404, text="unexpected")
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    client = IRCTCClient(client=http, retries=1, backoff=0.0)
+    try:
+        await client.search_segment("MMCT", "NDLS", "01-07-2026")                        # bundle (GN/TQ): 1 call
+        await client.search_segment("MMCT", "NDLS", "01-07-2026")                        # cached: no call
+        await client.search_segment("MMCT", "NDLS", "01-07-2026", BookingQuota.GENERAL)  # bundle: cached, no call
+        await client.search_segment("MMCT", "NDLS", "01-07-2026", BookingQuota.TATKAL)   # bundle: cached, no call
+        await client.search_segment("MMCT", "NDLS", "01-07-2026", BookingQuota.LADIES)   # quota=LD: new call
+        await client.search_segment("MMCT", "NDLS", "01-07-2026", BookingQuota.SENIOR)   # quota=SS: new call
+    finally:
+        await http.aclose()
+    # GN/TQ/None all collapse to ONE no-quota fetch; LD and SS each fetch once with their code.
+    assert seen_quota_params == [None, "LD", "SS"]
 
 
 async def test_get_class_options_returns_all_offered_classes():
