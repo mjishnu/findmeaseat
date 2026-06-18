@@ -89,8 +89,8 @@ class IRCTCClient:
         # LRU-bounded (OrderedDict + move_to_end on use, popitem(last=False) on overflow)
         # so a long-running process can't grow these without limit.
         self._route_cache: OrderedDict[str, tuple[float, dict[str, Any] | None]] = OrderedDict()
-        self._segment_cache: OrderedDict[tuple[str, str, str], tuple[float, list[dict]]] = OrderedDict()
-        self._segment_inflight: dict[tuple[str, str, str], asyncio.Future] = {}
+        self._segment_cache: OrderedDict[tuple[str, str, str, str | None], tuple[float, list[dict]]] = OrderedDict()
+        self._segment_inflight: dict[tuple[str, str, str, str | None], asyncio.Future] = {}
         self._route_inflight: dict[str, asyncio.Future] = {}
         self._lock = asyncio.Lock()
 
@@ -253,10 +253,16 @@ class IRCTCClient:
         return result
 
     # ----------------------------------------------------------- segment search
-    async def search_segment(self, source: str, destination: str, date_ddmmyyyy: str) -> list[dict]:
-        """confirmtkt trainList for one segment+date. Cached with single-flight
-        so concurrent callers for the same key share one HTTP request."""
-        key = (source, destination, date_ddmmyyyy)
+    async def search_segment(
+        self, source: str, destination: str, date_ddmmyyyy: str,
+        quota: BookingQuota | None = None,
+    ) -> list[dict]:
+        """confirmtkt trainList for one segment+date+quota. GN/TQ share the bundled
+        response (fetch_group None); LD/SS each fetch a quota=-parameterised response
+        (fetch_group = the code). Cached with single-flight so concurrent callers for
+        the same key share one HTTP request."""
+        fetch_group = quota.value if quota in (BookingQuota.LADIES, BookingQuota.SENIOR) else None
+        key = (source, destination, date_ddmmyyyy, fetch_group)
         now = time.monotonic()
         async with self._lock:
             hit = self._segment_cache.get(key)
@@ -265,7 +271,7 @@ class IRCTCClient:
                 return hit[1]
 
         async def _compute() -> list[dict]:
-            result = await self._do_search(source, destination, date_ddmmyyyy)
+            result = await self._do_search(source, destination, date_ddmmyyyy, fetch_group)
             async with self._lock:
                 self._segment_cache[key] = (time.monotonic(), result)
                 self._segment_cache.move_to_end(key)
@@ -275,18 +281,20 @@ class IRCTCClient:
 
         return await self._run_single_flight(key, self._segment_inflight, _compute)
 
-    async def _do_search(self, source: str, destination: str, date_ddmmyyyy: str) -> list[dict]:
-        payload = await self._get_json(
-            CONFIRMTKT_SEARCH,
-            {
-                "sourceStationCode": source, "destinationStationCode": destination,
-                "dateOfJourney": date_ddmmyyyy, "addAvailabilityCache": "true",
-                "excludeMultiTicketAlternates": "false", "excludeBoostAlternates": "false",
-                "sortBy": "DEFAULT", "enableNearby": "true", "enableTG": "true",
-                "tGPlan": "CTG-3", "showTGPrediction": "false",
-                "tgColor": "DEFAULT", "showPredictionGlobal": "true",
-            },
-        )
+    async def _do_search(
+        self, source: str, destination: str, date_ddmmyyyy: str, quota: str | None = None,
+    ) -> list[dict]:
+        params = {
+            "sourceStationCode": source, "destinationStationCode": destination,
+            "dateOfJourney": date_ddmmyyyy, "addAvailabilityCache": "true",
+            "excludeMultiTicketAlternates": "false", "excludeBoostAlternates": "false",
+            "sortBy": "DEFAULT", "enableNearby": "true", "enableTG": "true",
+            "tGPlan": "CTG-3", "showTGPrediction": "false",
+            "tgColor": "DEFAULT", "showPredictionGlobal": "true",
+        }
+        if quota is not None:
+            params["quota"] = quota  # fills availabilityCacheForQuota for LD/SS
+        payload = await self._get_json(CONFIRMTKT_SEARCH, params)
         data = payload.get("data") if isinstance(payload, dict) else None
         train_list = (data or {}).get("trainList") if isinstance(data, dict) else None
         return train_list or []
@@ -319,7 +327,8 @@ def class_cache(
     train: dict, class_code: str, quota: BookingQuota = BookingQuota.GENERAL
 ) -> dict:
     """The availability cache entry for one class in `quota`, or {}. Defaults to
-    the general cache; Tatkal reads the bundled `availabilityCacheTatkal`."""
+    the general cache; Tatkal reads the bundled `availabilityCacheTatkal`; LD/SS
+    read `availabilityCacheForQuota` (filled by a quota=-parameterised search)."""
     cache = train.get(cache_key(quota)) or {}
     return cache.get(class_code) or {}
 
