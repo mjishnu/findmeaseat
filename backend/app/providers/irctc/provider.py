@@ -140,7 +140,7 @@ class IRCTCRailDataProvider:
         quota: BookingQuota = BookingQuota.GENERAL,
     ) -> str:
         train = find_train(
-            await self._client.search_segment(source, destination, format_date(journey_date)),
+            await self._client.search_segment(source, destination, format_date(journey_date), quota),
             train_number,
         )
         if train is None:
@@ -161,7 +161,7 @@ class IRCTCRailDataProvider:
         # no fare — 0 would read as "free" and corrupt extra_fare/ranking. An
         # unbookable Tatkal cell reports fare 0, so coerce 0 -> None as well.
         train = find_train(
-            await self._client.search_segment(source, destination, format_date(journey_date)),
+            await self._client.search_segment(source, destination, format_date(journey_date), quota),
             train_number,
         )
         if train is None:
@@ -178,7 +178,7 @@ class IRCTCRailDataProvider:
     ) -> list[tuple[str, str, int | None]]:
         # Same cached confirmtkt response as get_seat_status — no extra request.
         train = find_train(
-            await self._client.search_segment(source, destination, format_date(journey_date)),
+            await self._client.search_segment(source, destination, format_date(journey_date), quota),
             train_number,
         )
         if train is None:

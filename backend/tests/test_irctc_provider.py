@@ -465,3 +465,31 @@ def test_to_int_keeps_sign_and_first_token():
     assert _to_int(3140) == 3140
     assert _to_int("") is None
     assert _to_int(None) is None
+
+
+CT_PAYLOAD_FORQUOTA = {
+    "data": {
+        "trainList": [
+            {
+                "trainNumber": "12951",
+                "availabilityCache": {"SL": {"availabilityDisplayName": "AVAILABLE-0042", "fare": 1245}},
+                "availabilityCacheForQuota": {"SL": {"availabilityDisplayName": "LADIES WL3", "fare": 1300}},
+            }
+        ]
+    }
+}
+
+
+async def test_seat_status_and_fare_read_for_quota_cache_for_ladies():
+    provider, http = _provider(_make_handler(ct_payload=CT_PAYLOAD_FORQUOTA))
+    try:
+        status = await provider.get_seat_status(
+            "12951", "MMCT", "NDLS", DATE, TravelClass.SL, BookingQuota.LADIES
+        )
+        fare = await provider.get_fare(
+            "12951", "MMCT", "NDLS", DATE, TravelClass.SL, BookingQuota.LADIES
+        )
+    finally:
+        await http.aclose()
+    assert status == "LADIES WL3"  # the availabilityCacheForQuota cell, not the general "AVAILABLE-0042"
+    assert fare == 1300
