@@ -57,8 +57,8 @@ export interface Recommendation {
   alight_at: string
   action: string
   availability: ParsedAvailability
-  probability: number
-  score: number
+  probability: number | null
+  score: number | null
   booked_distance_km: number
   extra_km: number
   fare: number | null
@@ -79,7 +79,7 @@ export interface SwitchAlternative {
   travel_class: TravelClass
   quota: BookingQuota
   availability: ParsedAvailability
-  probability: number
+  probability: number | null
   fare: number | null
   fare_delta: number | null
 }
@@ -167,7 +167,7 @@ export interface Station {
 export interface ClassAvailability {
   travel_class: TravelClass
   availability: ParsedAvailability
-  probability: number
+  probability: number | null
   fare: number | null
 }
 

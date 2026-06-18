@@ -60,9 +60,11 @@ export function RecommendationCard({ rec, highlight = false }: RecommendationCar
         <dl className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
           <div>
             <dt className="sr-only">Fare</dt>
-            <dd className="font-ticket font-semibold text-rail-950">₹{rec.fare}</dd>
+            <dd className="font-ticket font-semibold text-rail-950">
+              {rec.fare != null ? `₹${rec.fare}` : 'Fare n/a'}
+            </dd>
           </div>
-          {rec.extra_fare > 0 && (
+          {rec.extra_fare != null && rec.extra_fare > 0 && (
             <div>
               <dt className="sr-only">Extra fare</dt>
               <dd className="text-signal-amber-deep">+₹{rec.extra_fare} vs direct</dd>
