@@ -148,6 +148,23 @@ class TrainsBetweenResponse(BaseModel):
     trains: list[TrainBetween]
 
 
+class TrainQuotaClasses(BaseModel):
+    """One train's per-class availability under a single quota. Carries the card's
+    disambiguators — train_number is NOT unique within a result (enableNearby)."""
+    train_number: str
+    from_code: str
+    departure_time: str
+    classes: list[ClassAvailability]
+
+
+class TrainsQuotaAvailabilityResponse(BaseModel):
+    source: str
+    destination: str
+    journey_date: dt.date
+    quota: BookingQuota
+    trains: list[TrainQuotaClasses]
+
+
 class UserLeg(BaseModel):
     source: str
     destination: str
