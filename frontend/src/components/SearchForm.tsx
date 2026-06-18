@@ -116,7 +116,7 @@ export function SearchForm({
             name="trainNumber"
             type="text"
             inputMode="numeric"
-            placeholder="16512"
+            placeholder="12345"
             required
             pattern="\d{5}"
             maxLength={5}
