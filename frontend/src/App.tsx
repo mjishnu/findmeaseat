@@ -35,7 +35,7 @@ export default function App() {
       <header className="border-t-4 border-signal-amber bg-rail-950 text-paper-50">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-4 sm:px-6">
           <p className="font-display text-2xl font-bold tracking-tight">
-            GetMeASeat<span className="text-signal-amber">.</span>
+            FindMeASeat<span className="text-signal-amber">.</span>
           </p>
           <nav
             aria-label="Tools"

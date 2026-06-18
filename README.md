@@ -1,4 +1,4 @@
-# GetMeASeat
+# FindMeASeat
 
 Finds the Indian Railways booking most likely to confirm by checking every
 station-pair combination that covers your journey (booking from an earlier

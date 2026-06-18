@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="GetMeASeat API",
+    title="FindMeASeat API",
     version="0.1.0",
     description="Finds the booking combination most likely to confirm by "
     "checking every station pair that covers the user's journey.",
