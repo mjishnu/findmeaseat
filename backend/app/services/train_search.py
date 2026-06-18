@@ -84,6 +84,7 @@ class TrainSearchService:
             distance_km=raw.distance_km,
             general=[self._to_class(o) for o in raw.general_offers],
             tatkal=[self._to_class(o) for o in raw.tatkal_offers],
+            allowed_quotas=raw.allowed_quotas,
         )
 
     @staticmethod

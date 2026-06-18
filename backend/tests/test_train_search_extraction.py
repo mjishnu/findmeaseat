@@ -111,3 +111,14 @@ def test_build_quota_rows_empty_cache_yields_no_offers():
     train = {k: v for k, v in _QUOTA_TRAIN.items() if k != "availabilityCacheForQuota"}
     [(_n, _f, _d, offers)] = build_quota_rows([train])
     assert offers == []
+
+
+def test_allowed_quotas_surfaced_from_payload():
+    train = {**_TRAIN, "allowedQuotas": ["GN", "TQ", "LD", "SS"]}
+    [t] = build_raw_trains_between([train])
+    assert t.allowed_quotas == ["GN", "TQ", "LD", "SS"]
+
+
+def test_allowed_quotas_defaults_empty_when_absent():
+    [t] = build_raw_trains_between([_TRAIN])  # _TRAIN has no allowedQuotas key
+    assert t.allowed_quotas == []
