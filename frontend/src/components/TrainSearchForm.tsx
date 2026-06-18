@@ -93,28 +93,22 @@ export function TrainSearchForm({
         </div>
 
         <div>
-          <span className={LABEL}>Quota</span>
-          <div
-            role="group"
-            aria-label="Quota"
-            className="mt-1.5 inline-flex rounded-md border border-rail-200 bg-paper-100 p-0.5 font-ticket text-xs font-semibold uppercase tracking-[0.15em]"
+          <label htmlFor="ts-quota" className={LABEL}>
+            Quota
+          </label>
+          <select
+            id="ts-quota"
+            name="quota"
+            className={FIELD}
+            value={quota}
+            onChange={(e) => onQuotaChange(e.target.value as BookingQuota)}
           >
             {SHOWN_QUOTAS.map((q) => (
-              <button
-                key={q.value}
-                type="button"
-                aria-pressed={quota === q.value}
-                onClick={() => onQuotaChange(q.value)}
-                className={`rounded px-3 py-2 transition-colors ${
-                  quota === q.value
-                    ? 'bg-rail-900 text-paper-50'
-                    : 'text-rail-700 hover:text-rail-950'
-                }`}
-              >
+              <option key={q.value} value={q.value}>
                 {q.label}
-              </button>
+              </option>
             ))}
-          </div>
+          </select>
         </div>
 
         <button

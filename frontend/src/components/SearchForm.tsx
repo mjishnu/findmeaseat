@@ -1,41 +1,63 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { ApiError, getTrainRoute, type SearchQuery, type TrainRoute } from '../api/client'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import {
+  ApiError,
+  getTrainRoute,
+  QUOTAS,
+  TRAVEL_CLASSES,
+  type BookingQuota,
+  type SearchQuery,
+  type TrainRoute,
+  type TravelClass,
+} from '../api/client'
+import { FIELD, LABEL } from './formStyles'
+import { MAX_DATE, MIN_DATE } from '../lib/bookingDates'
+
+export interface SearchPrefill {
+  trainNumber?: string
+  source?: string
+  destination?: string
+  date?: string
+}
 
 interface SearchFormProps {
   onSearch: (query: SearchQuery) => void
   searching: boolean
+  travelClass: TravelClass
+  onTravelClassChange: (travelClass: TravelClass) => void
+  quota: BookingQuota
+  onQuotaChange: (quota: BookingQuota) => void
+  // Seed values from a Train Search deep-link. The parent remounts this form
+  // (via key) when a new prefill arrives, so seeding at useState suffices.
+  initial?: SearchPrefill
 }
 
-const ARP_DAYS = 60 // IRCTC advance reservation period
-const BOOKING_TZ = 'Asia/Kolkata' // the railway's booking day is IST, matching the backend
-// en-CA renders YYYY-MM-DD, the format <input type="date"> min/max expects.
-const istToday = () =>
-  new Intl.DateTimeFormat('en-CA', { timeZone: BOOKING_TZ }).format(new Date())
-const addDays = (ymd: string, days: number) => {
-  const d = new Date(`${ymd}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + days)
-  return d.toISOString().slice(0, 10)
-}
-// Computed once at module load (render must stay pure); stale only if the tab
-// survives past IST midnight, and the backend re-validates anyway.
-const MIN_DATE = istToday()
-const MAX_DATE = addDays(MIN_DATE, ARP_DAYS)
-
-const LABEL = 'block font-ticket text-[11px] font-medium uppercase tracking-[0.18em] text-rail-700'
-const FIELD =
-  'mt-1.5 w-full rounded-md border border-rail-200 bg-white px-3 py-2.5 font-ticket text-sm text-rail-950 ' +
-  'placeholder:text-rail-700/80 focus:border-rail-500 focus:outline-none focus:ring-2 focus:ring-rail-500/30 ' +
-  'disabled:cursor-not-allowed disabled:bg-paper-200/60 disabled:text-rail-700/50'
-
-export function SearchForm({ onSearch, searching }: SearchFormProps) {
-  const [trainNumber, setTrainNumber] = useState('')
+export function SearchForm({
+  onSearch,
+  searching,
+  travelClass,
+  onTravelClassChange,
+  quota,
+  onQuotaChange,
+  initial,
+}: SearchFormProps) {
+  const [trainNumber, setTrainNumber] = useState(initial?.trainNumber ?? '')
+  const [source, setSource] = useState(initial?.source ?? '')
+  const [destination, setDestination] = useState(initial?.destination ?? '')
+  const [date, setDate] = useState(initial?.date ?? '')
   const [route, setRoute] = useState<TrainRoute | null>(null)
   const [routeError, setRouteError] = useState<string | null>(null)
   const [retryToken, setRetryToken] = useState(0)
+  // A Train Search deep-link arrives with a full prefill; once the route loads
+  // (the From/To selects need its stations) we fire the search automatically.
+  const autoSearchPending = useRef(
+    Boolean(initial?.trainNumber && initial?.source && initial?.destination && initial?.date),
+  )
 
   function handleTrainNumberChange(value: string) {
     setTrainNumber(value.trim())
-    setRoute(null) // a stale route must never outlive an edited number
+    setSource('') // a stale route/selection must never outlive an edited number
+    setDestination('')
+    setRoute(null)
     setRouteError(null)
   }
 
@@ -57,15 +79,25 @@ export function SearchForm({ onSearch, searching }: SearchFormProps) {
     return () => controller.abort()
   }, [trainNumber, retryToken])
 
+  // Auto-run the deep-linked search once, after the route (and thus the seeded
+  // From/To options) is in place. The ref guard keeps it to a single fire.
+  useEffect(() => {
+    if (!autoSearchPending.current) return
+    if (searching || !route || !source || !destination || !date) return
+    autoSearchPending.current = false
+    onSearch({ trainNumber, source, destination, date, travelClass, quota })
+  }, [route, source, destination, date, searching, trainNumber, travelClass, quota, onSearch])
+
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (searching || !route) return // button is aria-disabled, not disabled
-    const data = new FormData(e.currentTarget)
     onSearch({
       trainNumber,
-      source: String(data.get('source') ?? ''),
-      destination: String(data.get('destination') ?? ''),
-      date: String(data.get('date') ?? ''),
+      source,
+      destination,
+      date,
+      travelClass, // controlled — stays in sync when the switch banner changes it
+      quota, // controlled — likewise kept in sync with the banner
     })
   }
 
@@ -74,7 +106,7 @@ export function SearchForm({ onSearch, searching }: SearchFormProps) {
       onSubmit={handleSubmit}
       className="mt-10 rounded-xl border border-rail-200 bg-paper-50 p-5 shadow-sm sm:p-6"
     >
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
         <div>
           <label htmlFor="trainNumber" className={LABEL}>
             Train number
@@ -84,7 +116,7 @@ export function SearchForm({ onSearch, searching }: SearchFormProps) {
             name="trainNumber"
             type="text"
             inputMode="numeric"
-            placeholder="12345"
+            placeholder="16512"
             required
             pattern="\d{5}"
             maxLength={5}
@@ -121,7 +153,15 @@ export function SearchForm({ onSearch, searching }: SearchFormProps) {
           <label htmlFor="source" className={LABEL}>
             From
           </label>
-          <select id="source" name="source" required disabled={!route} className={FIELD} defaultValue="">
+          <select
+            id="source"
+            name="source"
+            required
+            disabled={!route}
+            className={FIELD}
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+          >
             <option value="" disabled>
               {route ? 'Select station' : 'Enter train first'}
             </option>
@@ -143,7 +183,8 @@ export function SearchForm({ onSearch, searching }: SearchFormProps) {
             required
             disabled={!route}
             className={FIELD}
-            defaultValue=""
+            value={destination}
+            onChange={(e) => setDestination(e.target.value)}
           >
             <option value="" disabled>
               {route ? 'Select station' : 'Enter train first'}
@@ -167,8 +208,48 @@ export function SearchForm({ onSearch, searching }: SearchFormProps) {
             required
             min={MIN_DATE}
             max={MAX_DATE}
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
             className={FIELD}
           />
+        </div>
+
+        <div>
+          <label htmlFor="travelClass" className={LABEL}>
+            Class
+          </label>
+          <select
+            id="travelClass"
+            name="travelClass"
+            className={FIELD}
+            value={travelClass}
+            onChange={(e) => onTravelClassChange(e.target.value as TravelClass)}
+          >
+            {TRAVEL_CLASSES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label htmlFor="quota" className={LABEL}>
+            Quota
+          </label>
+          <select
+            id="quota"
+            name="quota"
+            className={FIELD}
+            value={quota}
+            onChange={(e) => onQuotaChange(e.target.value as BookingQuota)}
+          >
+            {QUOTAS.map((q) => (
+              <option key={q.value} value={q.value}>
+                {q.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
