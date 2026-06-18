@@ -171,5 +171,11 @@ async def test_get_seat_prediction_none_for_non_waitlist(provider):
 
 async def test_search_trains_between_offers_carry_prediction(provider):
     raws = await provider.search_trains_between("A", "D", DATE)
-    # at least one offer is a waitlist with a numeric prediction, and the field exists on all
-    assert all(hasattr(o, "prediction_pct") for o in raws[0].general_offers)
+    offers = raws[0].general_offers
+    assert offers  # the leg yields per-class offers
+    # Each offer's prediction_pct is None-or-int AND matches the provider's own
+    # get_seat_prediction for that class — verifies the wiring, not just the attr.
+    for o in offers:
+        assert o.prediction_pct is None or isinstance(o.prediction_pct, int)
+        expected = await provider.get_seat_prediction("12345", "A", "D", DATE, o.travel_class)
+        assert o.prediction_pct == expected

@@ -93,6 +93,9 @@ def test_works_with_fake_provider_end_to_end():
         body = res.json()
         assert body["pairs_evaluated"] == 9
         scores = [r["score"] for r in body["recommendations"]]
+        # No no-estimate (None-score) leg reached the top-3 here; guard so a future
+        # fixture change fails loudly instead of TypeError-ing in sorted([float, None]).
+        assert all(s is not None for s in scores)
         assert scores == sorted(scores, reverse=True)
         assert len(body["recommendations"]) <= 3
     finally:
