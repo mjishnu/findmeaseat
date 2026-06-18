@@ -13,6 +13,7 @@ class StubProvider:
         statuses: dict[tuple, str],
         class_options: dict[str, int | None] | None = None,
         tatkal_class_options: dict[str, int | None] | None = None,
+        predictions: dict[tuple, int] | None = None,
     ):
         # statuses keyed by (source, destination), (source, destination, class_code),
         # or (source, destination, class_code, quota_code) — most specific wins.
@@ -22,6 +23,8 @@ class StubProvider:
         # distant date where Tatkal isn't populated yet.
         self._class_options = class_options or {}
         self._tatkal_class_options = tatkal_class_options or {}
+        # Keyed like statuses: (src,dst), (src,dst,class), or (src,dst,class,quota).
+        self._predictions = predictions or {}
 
     async def get_route(self, train_number: str) -> TrainRoute | None:
         return DEMO_TRAIN if train_number == DEMO_TRAIN.train_number else None
@@ -62,6 +65,24 @@ class StubProvider:
             or self._statuses.get((source, destination))
             or "REGRET"
         )
+
+    async def get_seat_prediction(
+        self,
+        train_number: str,
+        source: str,
+        destination: str,
+        journey_date: dt.date,
+        travel_class: TravelClass,
+        quota: BookingQuota = BookingQuota.GENERAL,
+    ) -> int | None:
+        for key in (
+            (source, destination, travel_class.value, quota.value),
+            (source, destination, travel_class.value),
+            (source, destination),
+        ):
+            if key in self._predictions:
+                return self._predictions[key]  # explicit: a real 0 is preserved
+        return None
 
     async def get_fare(
         self,

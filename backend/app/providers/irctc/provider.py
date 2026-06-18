@@ -56,7 +56,12 @@ def _offers(cache: dict | None, class_order: list[str]) -> list[RawClassOffer]:
         if not raw:
             continue
         offers.append(
-            RawClassOffer(travel_class=tc, raw_availability=raw, fare=_to_int(entry.get("fare")))
+            RawClassOffer(
+                travel_class=tc,
+                raw_availability=raw,
+                fare=_to_int(entry.get("fare")),
+                prediction_pct=_to_int(entry.get("predictionPercentage")),
+            )
         )
     return offers
 
@@ -167,6 +172,25 @@ class IRCTCRailDataProvider:
         if train is None:
             return None
         return _to_int(class_cache(train, travel_class.value, quota).get("fare")) or None
+
+    async def get_seat_prediction(
+        self,
+        train_number: str,
+        source: str,
+        destination: str,
+        journey_date: dt.date,
+        travel_class: TravelClass,
+        quota: BookingQuota = BookingQuota.GENERAL,
+    ) -> int | None:
+        # Same cached confirmtkt response as get_seat_status — no extra request.
+        # _to_int keeps a real 0 and maps absent/unparseable -> None.
+        train = find_train(
+            await self._client.search_segment(source, destination, format_date(journey_date), quota),
+            train_number,
+        )
+        if train is None:
+            return None
+        return _to_int(class_cache(train, travel_class.value, quota).get("predictionPercentage"))
 
     async def get_class_options(
         self,

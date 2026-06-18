@@ -43,8 +43,8 @@ CT_PAYLOAD = {
                 "duration": 929,
                 "avlClassesSorted": ["3A", "2A", "1A"],
                 "availabilityCache": {
-                    "SL": {"availabilityDisplayName": "AVAILABLE-0042", "fare": 1245, "prediction": "95%"},
-                    "3A": {"availabilityDisplayName": "GNWL50/WL30", "fare": 3140, "prediction": "61%"},
+                    "SL": {"availabilityDisplayName": "AVAILABLE-0042", "fare": 1245, "prediction": "95%", "predictionPercentage": 95},
+                    "3A": {"availabilityDisplayName": "GNWL50/WL30", "fare": 3140, "prediction": "61%", "predictionPercentage": 61},
                 },
                 "availabilityCacheTatkal": {},
             }
@@ -520,3 +520,53 @@ async def test_seat_status_and_fare_read_for_quota_cache_for_ladies():
         await http.aclose()
     assert status == "LADIES WL3"  # the availabilityCacheForQuota cell, not the general "AVAILABLE-0042"
     assert fare == 1300
+
+
+CT_PAYLOAD_PRED = {
+    "data": {
+        "trainList": [
+            {
+                "trainNumber": "12951",
+                "avlClassesSorted": ["SL", "3A", "2A"],
+                "availabilityCache": {
+                    "SL": {"availabilityDisplayName": "GNWL5/WL3", "fare": 700, "predictionPercentage": 88},
+                    "3A": {"availabilityDisplayName": "REGRET", "fare": 0, "predictionPercentage": 0},
+                    "2A": {"availabilityDisplayName": "GNWL9/WL4", "fare": 1800},  # no prediction key
+                },
+            }
+        ]
+    }
+}
+
+
+async def test_get_seat_prediction_reads_percentage():
+    provider, http = _provider(_make_handler(ct_payload=CT_PAYLOAD_PRED))
+    try:
+        sl = await provider.get_seat_prediction("12951", "MMCT", "NDLS", DATE, TravelClass.SL)
+        ac3 = await provider.get_seat_prediction("12951", "MMCT", "NDLS", DATE, TravelClass.AC3)
+        ac2 = await provider.get_seat_prediction("12951", "MMCT", "NDLS", DATE, TravelClass.AC2)
+    finally:
+        await http.aclose()
+    assert sl == 88
+    assert ac3 == 0      # a real 0, NOT coerced to None
+    assert ac2 is None   # key absent → None
+
+
+async def test_get_seat_prediction_none_when_train_absent():
+    provider, http = _provider(_make_handler(ct_payload=CT_PAYLOAD_OTHER))
+    try:
+        assert await provider.get_seat_prediction("12951", "MMCT", "NDLS", DATE, TravelClass.SL) is None
+    finally:
+        await http.aclose()
+
+
+async def test_offers_carry_prediction_pct():
+    provider, http = _provider(_make_handler(ct_payload=CT_PAYLOAD_PRED))
+    try:
+        raws = await provider.search_trains_between("MMCT", "NDLS", DATE)
+    finally:
+        await http.aclose()
+    by_class = {o.travel_class.value: o.prediction_pct for o in raws[0].general_offers}
+    assert by_class["SL"] == 88
+    assert by_class["3A"] == 0
+    assert by_class["2A"] is None

@@ -36,6 +36,20 @@ class RailDataProvider(Protocol):
         quota: BookingQuota = BookingQuota.GENERAL,
     ) -> str: ...
 
+    async def get_seat_prediction(
+        self,
+        train_number: str,
+        source: str,
+        destination: str,
+        journey_date: dt.date,
+        travel_class: TravelClass,
+        quota: BookingQuota = BookingQuota.GENERAL,
+    ) -> int | None: ...
+    # confirmtkt's predictionPercentage for this cell, read from the SAME cached
+    # entry as get_seat_status (no extra request). None when the class/segment has
+    # no prediction; a real 0 is preserved (un-bookable rows are filtered earlier
+    # via the availability string, so the waitlist path only sees positive values).
+
     async def get_fare(
         self,
         train_number: str,
