@@ -138,3 +138,10 @@ async def test_search_quota_normalizes_rows_with_disambiguators():
     assert sl.availability.status is AvailabilityStatus.NOT_BOOKABLE
     assert sl.fare is None  # 0 -> None business rule
     assert provider.calls == [("NDLS", "BCT", _tomorrow(), BookingQuota.LADIES)]
+
+
+def test_to_class_maps_prediction_to_probability():
+    wl = RawClassOffer(travel_class=TravelClass.SL, raw_availability="GNWL9/WL4", prediction_pct=72)
+    none_wl = RawClassOffer(travel_class=TravelClass.AC3, raw_availability="GNWL9/WL4")
+    assert TrainSearchService._to_class(wl).probability == 0.72
+    assert TrainSearchService._to_class(none_wl).probability is None  # no estimate -> display "—"

@@ -28,7 +28,7 @@ from app.schemas import (
 )
 
 MAX_RECOMMENDATIONS = 3
-MAX_ALTERNATIVES = 3  # the (class × quota) grid is ~16 cells; keep the banner tidy
+MAX_ALTERNATIVES = 3  # a train can offer ~8 classes; keep the banner tidy
 # booking_day_today / ADVANCE_RESERVATION_DAYS / BOOKING_TZ / validate_journey_date
 # are imported from app.core.dates (shared with train search) and re-exported here
 # for callers/tests that import them from this module.
@@ -48,14 +48,23 @@ _QUOTA_ACTION_SUFFIX = {
     BookingQuota.SENIOR: " in Senior Citizen quota",
 }
 
+# Higher tier always outranks lower, regardless of score — a seat in hand (or RAC's
+# guaranteed berth) must never be ranked below a waitlist, even a ~100% one.
+_STATUS_TIER = {
+    AvailabilityStatus.AVAILABLE: 3,
+    AvailabilityStatus.RAC: 2,
+    AvailabilityStatus.WAITLIST: 1,
+}
+
 
 @dataclass
 class _Candidate:
     board: StationStop
     alight: StationStop
     parsed: ParsedAvailability
-    probability: float
-    score: float
+    status_tier: int
+    probability: float | None
+    score: float | None
     booked_km: int
     extra_km: int
     fare: int | None
@@ -99,16 +108,15 @@ class RecommendationService:
             travel_class, quota,
         )
 
-        # Best score first; ties: higher raw probability, cheaper, shorter.
-        # Unknown fare sorts last on the cost tie-breaker (never "cheapest").
-        candidates.sort(
-            key=lambda c: (
-                -c.score,
-                -c.probability,
-                c.extra_fare if c.extra_fare is not None else math.inf,
-                c.extra_km,
-            )
-        )
+        # Status tier first (Decision 6), then score, raw probability, cost, distance.
+        # None score/probability sort last within their tier.
+        def _rank_key(c: _Candidate) -> tuple:
+            score = c.score if c.score is not None else -math.inf
+            prob = c.probability if c.probability is not None else -math.inf
+            fare = c.extra_fare if c.extra_fare is not None else math.inf
+            return (-c.status_tier, -score, -prob, fare, c.extra_km)
+
+        candidates.sort(key=_rank_key)
 
         recommendations = [
             self._build_recommendation(rank, cand, source, destination, quota)
@@ -116,8 +124,12 @@ class RecommendationService:
         ]
         # Baseline for the switch banner = the BEST chance achievable in the
         # searched (class, quota) cell (across pairs), not just the direct leg.
-        chosen_best = max(candidates, key=lambda c: c.probability, default=None)
-        chosen_best_prob = chosen_best.probability if chosen_best else 0.0
+        chosen_best = max(
+            candidates,
+            key=lambda c: c.probability if c.probability is not None else -math.inf,
+            default=None,
+        )
+        chosen_best_prob = chosen_best.probability if chosen_best and chosen_best.probability is not None else 0.0
         chosen_best_fare = chosen_best.fare if chosen_best else user_leg_fare
         alternatives = await self._build_alternatives(
             train_number, pairs, source, destination, km, user_leg_km, journey_date,
@@ -207,53 +219,53 @@ class RecommendationService:
         searched_best_prob: float,
         searched_best_fare: int | None,
     ) -> list[SwitchAlternative]:
-        """Across the full (class × quota) grid — both quotas, every class each
-        offers — the BEST achievable option per cell across covering pairs (not
-        just the direct leg). Reuses the searched cell's cached GN/TQ pair responses
-        (an LD/SS search adds one bundled GN/TQ fetch here — still single-flighted).
-        A bonus signal — never fatal — so an upstream hiccup degrades to []. Keeps
-        only strictly-better cells, sorted by probability, capped at the top few so
-        the banner stays tidy."""
+        """Within the SEARCHED quota only — every other class it offers — the BEST
+        achievable option per class across covering pairs (not just the direct leg).
+        A class switch keeps the same booking quota; a quota switch is a different
+        booking entirely, so we never propose one. Reuses the searched cell's cached
+        pair responses (no extra upstream fetch). A bonus signal — never fatal — so
+        an upstream hiccup degrades to []. Keeps only strictly-better classes, sorted
+        by probability, capped at the top few so the banner stays tidy."""
         alternatives: list[SwitchAlternative] = []
-        for q in (BookingQuota.GENERAL, BookingQuota.TATKAL):
+        try:
+            offered = await self._provider.get_class_options(
+                train_number, source, destination, journey_date, searched_quota
+            )
+        except ProviderUnavailableError:
+            return alternatives
+        for code, _raw, _fare in offered:
             try:
-                offered = await self._provider.get_class_options(
-                    train_number, source, destination, journey_date, q
+                tc = TravelClass(code)
+            except ValueError:
+                continue  # a class our enum doesn't model
+            if tc == searched_class:
+                continue  # skip the class the user already searched
+            try:
+                candidates, _parsed, _skipped, _cell_fare = await self._evaluate_class(
+                    train_number, pairs, source, destination, km, user_leg_km,
+                    journey_date, tc, searched_quota,
                 )
+                candidates = [c for c in candidates if c.probability is not None]
             except ProviderUnavailableError:
                 continue
-            for code, _raw, _fare in offered:
-                try:
-                    tc = TravelClass(code)
-                except ValueError:
-                    continue  # a class our enum doesn't model
-                if tc == searched_class and q == searched_quota:
-                    continue  # skip the cell the user already searched
-                try:
-                    candidates, _parsed, _skipped, _cell_fare = await self._evaluate_class(
-                        train_number, pairs, source, destination, km, user_leg_km,
-                        journey_date, tc, q,
-                    )
-                except ProviderUnavailableError:
-                    continue
-                best = max(candidates, key=lambda c: c.probability, default=None)
-                if best is None or best.probability <= searched_best_prob:
-                    continue  # only strictly better than the searched cell's best
-                fare_delta = (
-                    best.fare - searched_best_fare
-                    if best.fare is not None and searched_best_fare is not None
-                    else None
+            best = max(candidates, key=lambda c: c.probability, default=None)
+            if best is None or best.probability <= searched_best_prob:
+                continue  # only strictly better than the searched class's best
+            fare_delta = (
+                best.fare - searched_best_fare
+                if best.fare is not None and searched_best_fare is not None
+                else None
+            )
+            alternatives.append(
+                SwitchAlternative(
+                    travel_class=tc,
+                    quota=searched_quota,
+                    availability=best.parsed,
+                    probability=round(best.probability, 3),
+                    fare=best.fare,
+                    fare_delta=fare_delta,
                 )
-                alternatives.append(
-                    SwitchAlternative(
-                        travel_class=tc,
-                        quota=q,
-                        availability=best.parsed,
-                        probability=round(best.probability, 3),
-                        fare=best.fare,
-                        fare_delta=fare_delta,
-                    )
-                )
+            )
         alternatives.sort(key=lambda a: -a.probability)
         return alternatives[:MAX_ALTERNATIVES]
 
@@ -281,16 +293,20 @@ class RecommendationService:
         fare = await self._provider.get_fare(
             train_number, board.code, alight.code, journey_date, travel_class, quota
         )
+        prediction = await self._provider.get_seat_prediction(
+            train_number, board.code, alight.code, journey_date, travel_class, quota
+        )
         extra_fare = (
             fare - user_leg_fare
             if fare is not None and user_leg_fare is not None
             else None
         )
-        probability = confirmation_probability(parsed)
+        probability = confirmation_probability(parsed, prediction)
         candidate = _Candidate(
             board=board,
             alight=alight,
             parsed=parsed,
+            status_tier=_STATUS_TIER[parsed.status],
             probability=probability,
             score=option_score(probability, extra_fare, user_leg_fare, extra_km, user_leg_km),
             booked_km=booked_km,
@@ -324,6 +340,10 @@ class RecommendationService:
                 f"Get off at {destination}; the ticket runs on to {cand.alight.code} "
                 "but the difference is not refunded."
             )
+        if cand.probability is None:
+            notes.append(
+                "confirmtkt has no confirmation estimate for this leg; ranked last."
+            )
 
         action = f"Book {cand.board.code} to {cand.alight.code}, board at {source}"
         if cand.alight.code != destination:
@@ -339,8 +359,8 @@ class RecommendationService:
             alight_at=destination,
             action=action,
             availability=cand.parsed,
-            probability=round(cand.probability, 3),
-            score=round(cand.score, 3),
+            probability=round(cand.probability, 3) if cand.probability is not None else None,
+            score=round(cand.score, 3) if cand.score is not None else None,
             booked_distance_km=cand.booked_km,
             extra_km=cand.extra_km,
             fare=cand.fare,

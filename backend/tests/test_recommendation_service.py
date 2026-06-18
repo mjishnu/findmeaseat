@@ -13,20 +13,24 @@ from app.schemas import AvailabilityStatus, BookingQuota, TravelClass
 from app.services.recommendations import RecommendationService, booking_day_today
 from tests.conftest import StubProvider, tomorrow
 
-# Hand-computed expectation (cost-penalized; user-leg fare = calculate_fare(170) = 205):
-#   A→F AVAILABLE: 0.99 − 0.10·√(870/205) ≈ 0.784   (booked 1020 km → fare 1075)
-#   A→D GNWL wl10: 0.868 − 0.10·√(345/205) ≈ 0.738  (booked 480 km → fare 550)
-#   C→D PQWL wl8:  0.875 × 0.35            ≈ 0.306   (exact leg, no extra fare)
+# Availability + confirmtkt predictions drive the rank now (no WL-number heuristic).
+#   A->F AVAILABLE: status tier 3 -> always first, regardless of cost penalty.
+#   A->D GNWL wl10 @ pred 80% -> prob 0.80 (waitlist tier)
+#   C->D PQWL wl8  @ pred 30% -> prob 0.30 (waitlist tier, exact leg)
 STATUSES = {
     ("C", "D"): "PQWL 10/WL 8",
     ("A", "D"): "GNWL 15/WL 10",
     ("A", "F"): "AVAILABLE 10",
 }
+PREDICTIONS = {
+    ("A", "D"): 80,
+    ("C", "D"): 30,
+}
 
 
 @pytest.fixture()
 def service() -> RecommendationService:
-    return RecommendationService(StubProvider(STATUSES))
+    return RecommendationService(StubProvider(STATUSES, predictions=PREDICTIONS))
 
 
 async def test_ranks_better_quota_from_earlier_station_first(service):
@@ -34,8 +38,11 @@ async def test_ranks_better_quota_from_earlier_station_first(service):
     legs = [(r.book_from, r.book_to) for r in res.recommendations]
     assert legs == [("A", "F"), ("A", "D"), ("C", "D")]
     assert [r.rank for r in res.recommendations] == [1, 2, 3]
-    scores = [r.score for r in res.recommendations]
-    assert scores == sorted(scores, reverse=True)
+    # AVAILABLE leads by status tier; among the waitlists, the higher confirmtkt
+    # prediction (A->D 0.80) outranks the lower one (C->D 0.30).
+    assert res.recommendations[0].availability.status is AvailabilityStatus.AVAILABLE
+    wl = [r for r in res.recommendations if r.availability.status is AvailabilityStatus.WAITLIST]
+    assert [r.probability for r in wl] == [0.8, 0.3]
 
 
 async def test_action_strings_explain_the_booking(service):
@@ -69,12 +76,35 @@ async def test_user_leg_echoes_baseline_status(service):
 
 
 async def test_travel_class_is_echoed():
-    service = RecommendationService(StubProvider(STATUSES))
+    service = RecommendationService(StubProvider(STATUSES, predictions=PREDICTIONS))
     res = await service.find_optimal_route("12345", "C", "D", tomorrow(), TravelClass.AC2)
     assert res.travel_class is TravelClass.AC2
     # Defaulted when omitted.
     res_default = await service.find_optimal_route("12345", "C", "D", tomorrow())
     assert res_default.travel_class is TravelClass.SL
+
+
+async def test_available_outranks_a_near_certain_waitlist():
+    # Decision 6: a 100%-predicted waitlist must NOT leapfrog an AVAILABLE seat.
+    statuses = {("C", "D"): "AVAILABLE 5", ("A", "D"): "GNWL 2/WL 1"}
+    svc = RecommendationService(StubProvider(statuses, predictions={("A", "D"): 100}))
+    res = await svc.find_optimal_route("12345", "C", "D", tomorrow())
+    top = res.recommendations[0]
+    assert (top.book_from, top.book_to) == ("C", "D")
+    assert top.availability.status is AvailabilityStatus.AVAILABLE
+
+
+async def test_waitlist_without_estimate_is_ranked_last_and_flagged():
+    # Decision 3: a waitlist with no confirmtkt estimate sorts below estimated ones
+    # and carries an explanatory note. (A->D has an estimate; C->D does not.)
+    statuses = {("A", "D"): "GNWL 9/WL 4", ("C", "D"): "PQWL 9/WL 4"}
+    svc = RecommendationService(StubProvider(statuses, predictions={("A", "D"): 55}))
+    res = await svc.find_optimal_route("12345", "C", "D", tomorrow())
+    legs = [(r.book_from, r.book_to) for r in res.recommendations]
+    assert legs.index(("A", "D")) < legs.index(("C", "D"))
+    no_est = next(r for r in res.recommendations if (r.book_from, r.book_to) == ("C", "D"))
+    assert no_est.probability is None and no_est.score is None
+    assert any("no confirmation estimate" in n.lower() for n in no_est.notes)
 
 
 async def test_at_most_three_recommendations():
@@ -176,6 +206,9 @@ class _EqualFareProvider(StubProvider):
     """Every booking costs the same — mimics IR's coarse fare brackets where a
     slightly longer leg falls in the same slab (the real 2A case reported)."""
 
+    def __init__(self, statuses, predictions=None):
+        super().__init__(statuses, predictions=predictions)
+
     async def get_fare(self, *args, **kwargs):
         return 500
 
@@ -184,16 +217,18 @@ async def test_same_fare_lower_waitlist_earlier_station_ranks_first():
     # Regression: a lower-waitlist booking from an earlier station at the SAME
     # fare must outrank the higher-waitlist direct leg (it didn't under the old
     # distance penalty). C→D is the user's leg; B is one stop earlier.
+    # With confirmtkt predictions: B→D has higher probability (70%) than C→D (40%).
     statuses = {("C", "D"): "GNWL 8/WL 7", ("B", "D"): "GNWL 6/WL 5"}
-    service = RecommendationService(_EqualFareProvider(statuses))
+    predictions = {("C", "D"): 40, ("B", "D"): 70}
+    service = RecommendationService(_EqualFareProvider(statuses, predictions=predictions))
     res = await service.find_optimal_route("12345", "C", "D", tomorrow())
     top = res.recommendations[0]
-    assert (top.book_from, top.book_to) == ("B", "D")   # WL5 earlier-station wins
+    assert (top.book_from, top.book_to) == ("B", "D")   # higher prediction wins
     assert top.availability.current_wl == 5
     assert top.extra_fare == 0
     direct = next(r for r in res.recommendations if (r.book_from, r.book_to) == ("C", "D"))
     assert direct.availability.current_wl == 7
-    assert res.recommendations.index(direct) > 0          # the WL7 direct ranks below
+    assert res.recommendations.index(direct) > 0          # the lower-prediction direct ranks below
 
 
 async def test_class_alternative_shows_best_odds_across_pairs_not_direct_leg():
@@ -253,9 +288,11 @@ async def test_tatkal_recommendations_mention_the_quota():
     assert any("Tatkal" in n for n in top.notes)
 
 
-async def test_alternatives_surface_a_cross_quota_switch():
-    # Searched GN·SL is waitlisted on every covering pair; TQ·3A has a seat.
-    # The banner must propose switching BOTH axes at once (Tatkal · 3A).
+async def test_alternatives_never_propose_a_different_quota():
+    # Searched GN·SL is waitlisted on every covering pair; a Tatkal seat exists
+    # (TQ·3A AVAILABLE). Switching quota is a different booking entirely, so the
+    # banner must NOT propose it — only same-quota class switches are offered, and
+    # GN·3A here has no availability, so nothing surfaces.
     statuses = {
         ("C", "D", "SL", "GN"): "GNWL 20/WL 18",
         ("A", "D", "SL", "GN"): "GNWL 22/WL 15",
@@ -269,12 +306,27 @@ async def test_alternatives_surface_a_cross_quota_switch():
     res = await RecommendationService(provider).find_optimal_route(
         "12345", "C", "D", tomorrow(), TravelClass.SL, BookingQuota.GENERAL
     )
-    assert len(res.alternatives) == 1
-    alt = res.alternatives[0]
-    assert alt.quota is BookingQuota.TATKAL
-    assert alt.travel_class is TravelClass.AC3
-    assert alt.availability.status is AvailabilityStatus.AVAILABLE
-    assert alt.fare is not None  # priced (StubProvider fares are distance-based)
+    assert res.alternatives == []
+
+
+async def test_alternatives_stay_within_the_searched_tatkal_quota():
+    # Searched TQ·SL is waitlisted; TQ·3A has a seat (same quota → surfaced).
+    # GN·2A is also AVAILABLE, but it's a different quota — it must never appear.
+    statuses = {
+        ("C", "D", "SL", "TQ"): "GNWL 20/WL 18",
+        ("C", "D", "3A", "TQ"): "AVAILABLE 5",
+        ("C", "D", "2A", "GN"): "AVAILABLE 9",
+    }
+    provider = StubProvider(
+        statuses,
+        class_options={"SL": 175, "2A": 1900},
+        tatkal_class_options={"SL": 250, "3A": 1500},
+    )
+    res = await RecommendationService(provider).find_optimal_route(
+        "12345", "C", "D", tomorrow(), TravelClass.SL, BookingQuota.TATKAL
+    )
+    assert [a.travel_class for a in res.alternatives] == [TravelClass.AC3]
+    assert all(a.quota is BookingQuota.TATKAL for a in res.alternatives)
 
 
 async def test_no_tatkal_alternatives_when_tatkal_is_empty():
@@ -297,19 +349,24 @@ async def test_no_tatkal_alternatives_when_tatkal_is_empty():
 
 
 async def test_alternatives_capped_at_three_and_sorted_by_probability():
-    # Many strictly-better cells across the grid; keep only the top 3, best first.
+    # Many strictly-better same-quota class switches; keep only the top 3, best first.
+    # WL classes need predictions so they're not filtered as no-estimate candidates.
     statuses = {
         ("C", "D", "SL", "GN"): "GNWL 40/WL 38",  # searched: poor odds
         ("C", "D", "3A", "GN"): "GNWL 10/WL 6",
         ("C", "D", "2A", "GN"): "GNWL 8/WL 4",
         ("C", "D", "1A", "GN"): "RAC 3",
-        ("C", "D", "SL", "TQ"): "AVAILABLE 9",
-        ("C", "D", "3A", "TQ"): "AVAILABLE 5",
+        ("C", "D", "CC", "GN"): "AVAILABLE 9",
+    }
+    predictions = {
+        ("C", "D", "SL", "GN"): 5,   # searched: very poor odds
+        ("C", "D", "3A", "GN"): 60,  # WL alternative with prediction
+        ("C", "D", "2A", "GN"): 70,  # WL alternative with prediction
     }
     provider = StubProvider(
         statuses,
-        class_options={"SL": 175, "3A": 1190, "2A": 1900, "1A": 2600},
-        tatkal_class_options={"SL": 250, "3A": 1500},
+        class_options={"SL": 175, "3A": 1190, "2A": 1900, "1A": 2600, "CC": 900},
+        predictions=predictions,
     )
     res = await RecommendationService(provider).find_optimal_route(
         "12345", "C", "D", tomorrow(), TravelClass.SL, BookingQuota.GENERAL
@@ -317,7 +374,8 @@ async def test_alternatives_capped_at_three_and_sorted_by_probability():
     assert len(res.alternatives) == 3
     probs = [a.probability for a in res.alternatives]
     assert probs == sorted(probs, reverse=True)
-    # The two Tatkal AVAILABLE cells (prob 0.99) outrank every waitlisted cell.
+    assert all(a.quota is BookingQuota.GENERAL for a in res.alternatives)
+    # The AVAILABLE CC cell (prob 0.99) outranks every waitlisted cell.
     assert res.alternatives[0].availability.status is AvailabilityStatus.AVAILABLE
 
 
