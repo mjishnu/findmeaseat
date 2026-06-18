@@ -9,6 +9,7 @@ import random
 
 from app.core.dates import booking_day_today
 from app.schemas import (
+    AvailabilityStatus,
     BookingQuota,
     RawClassOffer,
     RawTrainBetween,
@@ -136,6 +137,10 @@ class FakeRailDataProvider:
     # Fare multipliers per class for the synthetic options.
     _CLASS_FARE_MULT = {"SL": 1.0, "3A": 2.6, "2A": 3.8}
 
+    # Prediction scale per class: AC clears slower than Sleeper at equal waitlist.
+    _CLASS_PRED_SCALE = {"SL": 1.0, "2S": 1.0, "3E": 0.85, "3A": 0.82, "CC": 0.8,
+                         "2A": 0.68, "FC": 0.6, "EC": 0.6, "1A": 0.5}
+
     async def get_class_options(
         self,
         train_number: str,
@@ -156,6 +161,32 @@ class FakeRailDataProvider:
             )
             out.append((code, status, int(base * mult)))
         return out
+
+    async def get_seat_prediction(
+        self,
+        train_number: str,
+        source: str,
+        destination: str,
+        journey_date: dt.date,
+        travel_class: TravelClass,
+        quota: BookingQuota = BookingQuota.GENERAL,
+    ) -> int | None:
+        from app.core.parser import parse_availability
+        status = await self.get_seat_status(
+            train_number, source, destination, journey_date, travel_class, quota
+        )
+        if parse_availability(status).status is not AvailabilityStatus.WAITLIST:
+            return None  # only waitlists carry a graded estimate; priors handle the rest
+        # Base is class-INDEPENDENT (no travel_class in the seed) so scaling alone
+        # orders the classes; a deterministic slice returns None to exercise that path.
+        rng = random.Random(
+            f"pred|{train_number}|{source}|{destination}|{journey_date.isoformat()}|{quota.value}"
+        )
+        if rng.random() < 0.12:
+            return None
+        base = rng.randint(40, 95)
+        scaled = round(base * self._CLASS_PRED_SCALE.get(travel_class.value, 1.0))
+        return max(1, scaled)
 
     async def search_quota_availability(
         self,
@@ -178,6 +209,9 @@ class FakeRailDataProvider:
                     route.train_number, source, destination, journey_date, TravelClass(code), quota
                 ),
                 fare=int((base or 0) * mult),
+                prediction_pct=await self.get_seat_prediction(
+                    route.train_number, source, destination, journey_date, TravelClass(code), quota
+                ),
             )
             for code, mult in self._CLASS_FARE_MULT.items()
         ]
@@ -201,6 +235,9 @@ class FakeRailDataProvider:
                     route.train_number, source, destination, journey_date, TravelClass(code)
                 ),
                 fare=int(base * mult),
+                prediction_pct=await self.get_seat_prediction(
+                    route.train_number, source, destination, journey_date, TravelClass(code)
+                ),
             )
             for code, mult in self._CLASS_FARE_MULT.items()
         ]
