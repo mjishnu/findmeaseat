@@ -23,3 +23,14 @@ class InvalidStationError(AppError):
 
 class InvalidJourneyDateError(AppError):
     """Date in the past or beyond the advance reservation period."""
+
+
+class ProviderUnavailableError(AppError):
+    """The upstream rail data source failed (network error, rate limit, or a
+    persistent 'try again' response) after retries. Distinct from a train
+    simply not existing, which degrades to TrainNotFoundError / a skipped pair."""
+
+    status_code = 503
+
+    def __init__(self, detail: str = "Rail data source is temporarily unavailable"):
+        super().__init__(detail)

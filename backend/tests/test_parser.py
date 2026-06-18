@@ -38,6 +38,11 @@ from app.schemas import Quota
         ("TRAIN DEPARTED", S.NOT_BOOKABLE, None, None, None, None),
         ("TRAIN CANCELLED", S.NOT_BOOKABLE, None, None, None, None),
         ("CHARTING DONE", S.NOT_BOOKABLE, None, None, None, None),
+        # confirmtkt decorates some availability strings with a trailing "#"
+        # marker (seen on live Tatkal data) — tolerate it like any other noise.
+        ("AVAILABLE-0072#", S.AVAILABLE, None, 72, None, None),
+        ("RLWL58/WL58#", S.WAITLIST, Quota.RLWL, None, 58, 58),
+        ("NOT AVAILABLE#", S.NOT_BOOKABLE, None, None, None, None),
         # Garbage
         ("??!", S.UNKNOWN, None, None, None, None),
     ],
