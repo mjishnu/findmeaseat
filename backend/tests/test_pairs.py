@@ -2,7 +2,7 @@ import pytest
 
 from app.core.pairs import enumerate_covering_pairs
 from app.exceptions import InvalidStationError
-from app.providers.mock.fixtures import DEMO_TRAIN
+from tests.fakes import DEMO_TRAIN
 
 
 def test_c_to_d_yields_all_nine_covering_pairs():

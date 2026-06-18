@@ -25,7 +25,9 @@ _BARE_WL_RE = re.compile(r"^WL[-\s]*0*(\d+)$")
 
 
 def parse_availability(raw: str) -> ParsedAvailability:
-    text = re.sub(r"\s+", " ", raw.strip().upper())
+    # confirmtkt suffixes some strings with a "#" marker (e.g. "AVAILABLE-0072#");
+    # strip it (and any trailing space) so the format regexes still anchor.
+    text = re.sub(r"\s+", " ", raw.strip().upper()).rstrip(" #")
 
     for token in _NOT_BOOKABLE_TOKENS:
         if token in text:
