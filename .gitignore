@@ -11,3 +11,9 @@ dist/
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Vendored reference app (carries its own git repo)
+refrence/
+
+# Claude Code local session files
+.claude/
