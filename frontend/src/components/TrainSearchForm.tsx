@@ -11,8 +11,6 @@ interface TrainSearchFormProps {
   onQuotaChange: (quota: BookingQuota) => void
 }
 
-// Train Search offers General/Tatkal until the lazy LD/SS fetch lands (Task 10).
-const SHOWN_QUOTAS = QUOTAS.filter((q) => q.value === 'GN' || q.value === 'TQ')
 
 export function TrainSearchForm({
   onSearch,
@@ -103,7 +101,7 @@ export function TrainSearchForm({
             value={quota}
             onChange={(e) => onQuotaChange(e.target.value as BookingQuota)}
           >
-            {SHOWN_QUOTAS.map((q) => (
+            {QUOTAS.map((q) => (
               <option key={q.value} value={q.value}>
                 {q.label}
               </option>
