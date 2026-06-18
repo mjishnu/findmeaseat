@@ -481,7 +481,34 @@ CT_PAYLOAD_FORQUOTA = {
 
 
 async def test_seat_status_and_fare_read_for_quota_cache_for_ladies():
-    provider, http = _provider(_make_handler(ct_payload=CT_PAYLOAD_FORQUOTA))
+    # Guard: the confirmtkt mock returns availabilityCacheForQuota ONLY when
+    # quota=LD is forwarded.  If get_seat_status/get_fare stop threading the
+    # quota through to search_segment (Task-6 Step-3a regression), the LD cell
+    # is absent and both assertions fail.
+    _CT_NO_QUOTA = {
+        "data": {
+            "trainList": [
+                {
+                    "trainNumber": "12951",
+                    "availabilityCache": {"SL": {"availabilityDisplayName": "AVAILABLE-0042", "fare": 1245}},
+                }
+            ]
+        }
+    }
+
+    def _handle_quota_aware(request: httpx.Request) -> httpx.Response:
+        host, path = request.url.host, request.url.path
+        if host == "erail.in" and path == "/rail/getTrains.aspx":
+            return httpx.Response(200, text=ERAIL_TRAIN_BODY)
+        if host == "erail.in" and path == "/data.aspx":
+            return httpx.Response(200, text=ERAIL_ROUTE_BODY)
+        if host == "cttrainsapi.confirmtkt.com":
+            if request.url.params.get("quota") == "LD":
+                return httpx.Response(200, json=CT_PAYLOAD_FORQUOTA)
+            return httpx.Response(200, json=_CT_NO_QUOTA)
+        return httpx.Response(404, text="unexpected url")
+
+    provider, http = _provider(_handle_quota_aware)
     try:
         status = await provider.get_seat_status(
             "12951", "MMCT", "NDLS", DATE, TravelClass.SL, BookingQuota.LADIES
