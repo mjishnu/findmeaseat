@@ -129,7 +129,11 @@ class RecommendationService:
             key=lambda c: c.probability if c.probability is not None else -math.inf,
             default=None,
         )
-        chosen_best_prob = chosen_best.probability if chosen_best and chosen_best.probability is not None else 0.0
+        chosen_best_prob = (
+            chosen_best.probability
+            if chosen_best and chosen_best.probability is not None
+            else 0.0
+        )
         chosen_best_fare = chosen_best.fare if chosen_best else user_leg_fare
         alternatives = await self._build_alternatives(
             train_number, pairs, source, destination, km, user_leg_km, journey_date,
