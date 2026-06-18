@@ -1,4 +1,4 @@
-import type { BookingQuota, ClassAvailability, TrainBetween } from '../api/client'
+import { QUOTAS, type BookingQuota, type ClassAvailability, type TrainBetween } from '../api/client'
 import { StatusBadge } from './StatusBadge'
 
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
@@ -46,14 +46,23 @@ function ClassChip({ cls }: { cls: ClassAvailability }) {
   )
 }
 
+function emptyHint(quota: BookingQuota, allowed: string[]): string {
+  if (!allowed.includes(quota)) {
+    const label = QUOTAS.find((q) => q.value === quota)?.label ?? quota
+    return `${label} quota is not offered on this train.`
+  }
+  if (quota === 'TQ') return 'Tatkal availability opens ~1 day before travel.'
+  return 'No availability data for this train.'
+}
+
 interface TrainBetweenCardProps {
   train: TrainBetween
   quota: BookingQuota
+  classes: ClassAvailability[]
   onFindSeat: (train: TrainBetween) => void
 }
 
-export function TrainBetweenCard({ train, quota, onFindSeat }: TrainBetweenCardProps) {
-  const classes = quota === 'TQ' ? train.tatkal : train.general
+export function TrainBetweenCard({ train, quota, classes, onFindSeat }: TrainBetweenCardProps) {
 
   return (
     <article className="flex h-full flex-col overflow-hidden rounded-xl border border-rail-200 bg-paper-50 shadow-sm transition-shadow hover:shadow-md">
@@ -120,10 +129,8 @@ export function TrainBetweenCard({ train, quota, onFindSeat }: TrainBetweenCardP
             ))}
           </div>
         ) : (
-          <p className="flex-1 rounded-md border border-dashed border-rail-200 px-3 py-2 text-xs italic text-rail-700">
-            {quota === 'TQ'
-              ? 'Tatkal availability opens ~1 day before travel.'
-              : 'No availability data for this train.'}
+          <p className="rounded-md border border-dashed border-rail-200 px-3 py-2 text-xs italic text-rail-700">
+            {emptyHint(quota, train.allowed_quotas)}
           </p>
         )}
 
