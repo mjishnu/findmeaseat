@@ -168,7 +168,9 @@ class FakeRailDataProvider:
         by_code = {s.code: s for s in route.stations}
         if source not in by_code or destination not in by_code:
             return []
-        base = await self.get_fare(route.train_number, source, destination, journey_date, TravelClass.SL, quota)
+        base = await self.get_fare(
+            route.train_number, source, destination, journey_date, TravelClass.SL, quota
+        )
         offers = [
             RawClassOffer(
                 travel_class=TravelClass(code),

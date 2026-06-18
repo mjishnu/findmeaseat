@@ -11,7 +11,6 @@ interface TrainSearchFormProps {
   onQuotaChange: (quota: BookingQuota) => void
 }
 
-
 export function TrainSearchForm({
   onSearch,
   searching,

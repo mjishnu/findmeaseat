@@ -1,5 +1,10 @@
-import { QUOTAS, type ClassAvailability, type TrainBetween, type TrainsBetweenResponse } from '../api/client'
-import type { BookingQuota } from '../api/client'
+import {
+  QUOTAS,
+  type BookingQuota,
+  type ClassAvailability,
+  type TrainBetween,
+  type TrainsBetweenResponse,
+} from '../api/client'
 import { TrainBetweenCard } from './TrainBetweenCard'
 
 interface TrainSearchResultsProps {
