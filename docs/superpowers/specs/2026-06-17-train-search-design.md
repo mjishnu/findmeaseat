@@ -163,11 +163,13 @@ Train Search tab (new view)
   "Tatkal opens ~1 day before travel" hint. Footer: **"Find me a seat →"** deep-link
   (per-train for MVP; per-class is a trivial later extension).
   - **Deep-link prefill nuance:** carry `train_number` + the search `date`, and
-    seed source/destination from the **user's searched** From/To codes. Because the
-    finder's selects are populated from the train's *route* (erail), a searched code
-    that isn't on the route (the `enableNearby` case, e.g. searched NDLS but the
-    train starts at NZM) is simply left unselected for the user to pick — controlled
-    selects seeded from `initial` degrade gracefully rather than erroring.
+    seed source/destination from **this train's own** `from_code`/`to_code` (the
+    stations the card displays), NOT the user's searched From/To. Because the
+    finder's selects are populated from the train's *route* (erail), seeding a
+    searched code that isn't on the route (the `enableNearby` case, e.g. searched
+    MMCT but the train serves CSMT) would leave the select blank. The train's own
+    boarding/alighting codes are always stops on its route, so both selects fill in
+    and the finder evaluates the journey that train actually offers.
 - **`components/TrainSearchResults.tsx`** — list + skeleton + "No direct trains
   found between X and Y" empty state.
 - **`SearchForm.tsx` refactor** — accept an optional `initial` prop; make
