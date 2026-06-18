@@ -84,6 +84,7 @@ def build_raw_trains_between(train_list: list[dict]) -> list[RawTrainBetween]:
                 distance_km=_to_int(t.get("distance")),
                 general_offers=_offers(t.get("availabilityCache"), order),
                 tatkal_offers=_offers(t.get("availabilityCacheTatkal"), order),
+                allowed_quotas=t.get("allowedQuotas") or [],
             )
         )
     return out

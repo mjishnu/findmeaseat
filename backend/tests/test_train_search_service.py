@@ -113,6 +113,15 @@ class _QuotaProvider:
         return self._rows
 
 
+async def test_allowed_quotas_passed_through_to_response():
+    raw = _raw(
+        general=[RawClassOffer(travel_class=TravelClass.SL, raw_availability="AVAILABLE-0010", fare=755)],
+        tatkal=[],
+    ).model_copy(update={"allowed_quotas": ["GN", "LD"]})
+    res = await TrainSearchService(_FakeProvider([raw])).search("NDLS", "BCT", _tomorrow())
+    assert res.trains[0].allowed_quotas == ["GN", "LD"]
+
+
 async def test_search_quota_normalizes_rows_with_disambiguators():
     rows = [("12904", "NDLS", "04:00", [
         RawClassOffer(travel_class=TravelClass.AC3, raw_availability="AVAILABLE-0042", fare=1980),

@@ -115,6 +115,7 @@ class RawTrainBetween(BaseModel):
     distance_km: int | None = None
     general_offers: list[RawClassOffer]
     tatkal_offers: list[RawClassOffer]
+    allowed_quotas: list[str] = []
 
 
 class ClassAvailability(BaseModel):
@@ -139,6 +140,7 @@ class TrainBetween(BaseModel):
     distance_km: int | None = None
     general: list[ClassAvailability]
     tatkal: list[ClassAvailability]   # often [] for distant dates (Tatkal window)
+    allowed_quotas: list[str] = []
 
 
 class TrainsBetweenResponse(BaseModel):
