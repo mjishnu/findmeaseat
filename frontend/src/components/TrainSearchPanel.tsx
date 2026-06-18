@@ -2,7 +2,9 @@ import { useRef, useState } from 'react'
 import {
   ApiError,
   searchTrainsBetween,
+  searchTrainsQuotaAvailability,
   type BookingQuota,
+  type ClassAvailability,
   type TrainBetween,
   type TrainsBetweenResponse,
 } from '../api/client'
@@ -10,6 +12,11 @@ import { ErrorBanner } from './ErrorBanner'
 import { SkeletonResults } from './SkeletonResults'
 import { TrainSearchForm } from './TrainSearchForm'
 import { TrainSearchResults } from './TrainSearchResults'
+
+// train_number is not unique within a result (enableNearby), so quota rows are
+// keyed by the same composite the card list uses.
+const rowKey = (t: { train_number: string; from_code: string; departure_time: string }) =>
+  `${t.train_number}-${t.from_code}-${t.departure_time}`
 
 export interface DeepLinkPayload {
   trainNumber: string
@@ -31,6 +38,10 @@ interface TrainSearchPanelProps {
 export function TrainSearchPanel({ onDeepLink }: TrainSearchPanelProps) {
   const [state, setState] = useState<State>({ status: 'idle' })
   const [quota, setQuota] = useState<BookingQuota>('GN')
+  // Lazily-fetched LD/SS availability, keyed by quota then by composite row key.
+  const [quotaCache, setQuotaCache] = useState<Partial<Record<BookingQuota, Map<string, ClassAvailability[]>>>>({})
+  const [quotaLoading, setQuotaLoading] = useState(false)
+  const quotaAbortRef = useRef<AbortController | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   async function handleSearch(q: { source: string; destination: string; date: string }) {
@@ -38,6 +49,7 @@ export function TrainSearchPanel({ onDeepLink }: TrainSearchPanelProps) {
     const controller = new AbortController()
     abortRef.current = controller
     setState({ status: 'loading' })
+    setQuotaCache({}) // a new route/date invalidates lazily-fetched quotas
     try {
       const data = await searchTrainsBetween(q.source, q.destination, q.date, controller.signal)
       setState({ status: 'success', data })
@@ -67,6 +79,30 @@ export function TrainSearchPanel({ onDeepLink }: TrainSearchPanelProps) {
     })
   }
 
+  function handleQuotaChange(next: BookingQuota) {
+    setQuota(next)
+    if (state.status !== 'success') return
+    if (next === 'GN' || next === 'TQ') return // bundled in the base response
+    if (quotaCache[next]) return // already fetched
+    quotaAbortRef.current?.abort()
+    const controller = new AbortController()
+    quotaAbortRef.current = controller
+    setQuotaLoading(true)
+    searchTrainsQuotaAvailability(state.data.source, state.data.destination, state.data.journey_date, next, controller.signal)
+      .then((res) => {
+        const byRow = new Map<string, ClassAvailability[]>()
+        for (const t of res.trains) byRow.set(rowKey(t), t.classes)
+        setQuotaCache((prev) => ({ ...prev, [next]: byRow }))
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        // A failed quota fetch leaves cards in their empty state; surface nothing fatal.
+      })
+      .finally(() => {
+        if (quotaAbortRef.current === controller) setQuotaLoading(false)
+      })
+  }
+
   return (
     <>
       <section className="max-w-2xl">
@@ -83,7 +119,7 @@ export function TrainSearchPanel({ onDeepLink }: TrainSearchPanelProps) {
         onSearch={handleSearch}
         searching={state.status === 'loading'}
         quota={quota}
-        onQuotaChange={setQuota}
+        onQuotaChange={handleQuotaChange}
       />
 
       <p aria-live="polite" className="sr-only">
@@ -97,7 +133,19 @@ export function TrainSearchPanel({ onDeepLink }: TrainSearchPanelProps) {
       {state.status === 'loading' && <SkeletonResults />}
       {state.status === 'error' && <ErrorBanner message={state.message} />}
       {state.status === 'success' && (
-        <TrainSearchResults data={state.data} quota={quota} onFindSeat={handleFindSeat} />
+        <TrainSearchResults
+          data={state.data}
+          quota={quota}
+          quotaLoading={quotaLoading}
+          onFindSeat={handleFindSeat}
+          classesFor={(t) =>
+            quota === 'GN'
+              ? t.general
+              : quota === 'TQ'
+                ? t.tatkal
+                : quotaCache[quota]?.get(rowKey(t)) ?? []
+          }
+        />
       )}
     </>
   )

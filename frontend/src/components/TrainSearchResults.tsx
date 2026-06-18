@@ -1,11 +1,13 @@
-import { QUOTAS, type TrainBetween, type TrainsBetweenResponse } from '../api/client'
+import { QUOTAS, type ClassAvailability, type TrainBetween, type TrainsBetweenResponse } from '../api/client'
 import type { BookingQuota } from '../api/client'
 import { TrainBetweenCard } from './TrainBetweenCard'
 
 interface TrainSearchResultsProps {
   data: TrainsBetweenResponse
   quota: BookingQuota
+  quotaLoading: boolean
   onFindSeat: (train: TrainBetween) => void
+  classesFor: (train: TrainBetween) => ClassAvailability[]
 }
 
 function prettyDate(ymd: string): string {
@@ -19,7 +21,7 @@ function prettyDate(ymd: string): string {
   })
 }
 
-export function TrainSearchResults({ data, quota, onFindSeat }: TrainSearchResultsProps) {
+export function TrainSearchResults({ data, quota, quotaLoading, onFindSeat, classesFor }: TrainSearchResultsProps) {
   const { source, destination, journey_date, trains } = data
 
   return (
@@ -42,12 +44,13 @@ export function TrainSearchResults({ data, quota, onFindSeat }: TrainSearchResul
           nearby station or another day.
         </p>
       ) : (
-        <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
+        <div className={`mt-6 grid grid-cols-1 gap-5 md:grid-cols-2 ${quotaLoading ? 'opacity-50' : ''}`}>
           {trains.map((t) => (
             <TrainBetweenCard
               key={`${t.train_number}-${t.from_code}-${t.departure_time}`}
               train={t}
               quota={quota}
+              classes={classesFor(t)}
               onFindSeat={onFindSeat}
             />
           ))}
