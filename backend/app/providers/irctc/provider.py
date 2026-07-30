@@ -5,16 +5,10 @@ confirmtkt's availability display string UNPARSED — app.core.parser owns
 normalization, so one weird upstream string degrades to UNKNOWN rather than
 breaking the search.
 """
+
 import datetime as dt
 
-from app.providers.irctc.client import (
-    IRCTCClient,
-    cache_key,
-    class_cache,
-    find_train,
-    format_date,
-)
-from app.providers.irctc.client import _to_int
+from app.providers.irctc import client as irctc_client
 from app.schemas import (
     BookingQuota,
     RawClassOffer,
@@ -52,15 +46,17 @@ def _offers(cache: dict | None, class_order: list[str]) -> list[RawClassOffer]:
         except ValueError:
             continue  # a class our enum doesn't model
         raw = entry.get("availability") or entry.get("availabilityDisplayName") or ""
-        raw = raw.strip().rstrip("#").strip()  # drop confirmtkt's "#" marker for clean display
+        raw = (
+            raw.strip().rstrip("#").strip()
+        )  # drop confirmtkt's "#" marker for clean display
         if not raw:
             continue
         offers.append(
             RawClassOffer(
                 travel_class=tc,
                 raw_availability=raw,
-                fare=_to_int(entry.get("fare")),
-                prediction_pct=_to_int(entry.get("predictionPercentage")),
+                fare=irctc_client._to_int(entry.get("fare")),
+                prediction_pct=irctc_client._to_int(entry.get("predictionPercentage")),
             )
         )
     return offers
@@ -83,10 +79,10 @@ def build_raw_trains_between(train_list: list[dict]) -> list[RawTrainBetween]:
                 to_name=t.get("toStnName") or "",
                 departure_time=t.get("departureTime") or "",
                 arrival_time=t.get("arrivalTime") or "",
-                duration_min=_to_int(t.get("duration")),
+                duration_min=irctc_client._to_int(t.get("duration")),
                 running_days=t.get("runningDays") or "",
                 has_pantry=bool(t.get("hasPantry")),
-                distance_km=_to_int(t.get("distance")),
+                distance_km=irctc_client._to_int(t.get("distance")),
                 general_offers=_offers(t.get("availabilityCache"), order),
                 tatkal_offers=_offers(t.get("availabilityCacheTatkal"), order),
                 allowed_quotas=t.get("allowedQuotas") or [],
@@ -105,18 +101,20 @@ def build_quota_rows(
     out: list[tuple[str, str, str, list[RawClassOffer]]] = []
     for t in train_list:
         order = t.get("avlClassesSorted") or []
-        out.append((
-            str(t.get("trainNumber") or ""),
-            t.get("fromStnCode") or "",
-            t.get("departureTime") or "",
-            _offers(t.get("availabilityCacheForQuota"), order),
-        ))
+        out.append(
+            (
+                str(t.get("trainNumber") or ""),
+                t.get("fromStnCode") or "",
+                t.get("departureTime") or "",
+                _offers(t.get("availabilityCacheForQuota"), order),
+            )
+        )
     return out
 
 
 class IRCTCRailDataProvider:
-    def __init__(self, client: IRCTCClient | None = None) -> None:
-        self._client = client or IRCTCClient()
+    def __init__(self, client: irctc_client.IRCTCClient | None = None) -> None:
+        self._client = client or irctc_client.IRCTCClient()
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -144,13 +142,17 @@ class IRCTCRailDataProvider:
         travel_class: TravelClass,
         quota: BookingQuota = BookingQuota.GENERAL,
     ) -> str:
-        train = find_train(
-            await self._client.search_segment(source, destination, format_date(journey_date), quota),
+        train = irctc_client.find_train(
+            await self._client.search_segment(
+                source, destination, irctc_client.format_date(journey_date), quota
+            ),
             train_number,
         )
         if train is None:
             return _UNBOOKABLE
-        display = class_cache(train, travel_class.value, quota).get("availabilityDisplayName")
+        display = irctc_client.class_cache(train, travel_class.value, quota).get(
+            "availabilityDisplayName"
+        )
         return display or _UNBOOKABLE
 
     async def get_fare(
@@ -165,13 +167,20 @@ class IRCTCRailDataProvider:
         # None (not 0) when the train isn't on this segment or the class carries
         # no fare — 0 would read as "free" and corrupt extra_fare/ranking. An
         # unbookable Tatkal cell reports fare 0, so coerce 0 -> None as well.
-        train = find_train(
-            await self._client.search_segment(source, destination, format_date(journey_date), quota),
+        train = irctc_client.find_train(
+            await self._client.search_segment(
+                source, destination, irctc_client.format_date(journey_date), quota
+            ),
             train_number,
         )
         if train is None:
             return None
-        return _to_int(class_cache(train, travel_class.value, quota).get("fare")) or None
+        return (
+            irctc_client._to_int(
+                irctc_client.class_cache(train, travel_class.value, quota).get("fare")
+            )
+            or None
+        )
 
     async def get_seat_prediction(
         self,
@@ -183,40 +192,47 @@ class IRCTCRailDataProvider:
         quota: BookingQuota = BookingQuota.GENERAL,
     ) -> int | None:
         # Same cached confirmtkt response as get_seat_status — no extra request.
-        # _to_int keeps a real 0 and maps absent/unparseable -> None.
-        train = find_train(
-            await self._client.search_segment(source, destination, format_date(journey_date), quota),
+        # irctc_client._to_int keeps a real 0 and maps absent/unparseable -> None.
+        train = irctc_client.find_train(
+            await self._client.search_segment(
+                source, destination, irctc_client.format_date(journey_date), quota
+            ),
             train_number,
         )
         if train is None:
             return None
-        return _to_int(class_cache(train, travel_class.value, quota).get("predictionPercentage"))
+        return irctc_client._to_int(
+            irctc_client.class_cache(train, travel_class.value, quota).get(
+                "predictionPercentage"
+            )
+        )
 
-    async def get_class_options(
+    async def get_train_classes(
         self,
         train_number: str,
         source: str,
         destination: str,
         journey_date: dt.date,
         quota: BookingQuota = BookingQuota.GENERAL,
-    ) -> list[tuple[str, str, int | None]]:
+    ) -> list[str]:
         # Same cached confirmtkt response as get_seat_status — no extra request.
-        train = find_train(
-            await self._client.search_segment(source, destination, format_date(journey_date), quota),
+        train = irctc_client.find_train(
+            await self._client.search_segment(
+                source, destination, irctc_client.format_date(journey_date), quota
+            ),
             train_number,
         )
         if train is None:
             return []
-        cache = train.get(cache_key(quota)) or {}
-        options: list[tuple[str, str, int | None]] = []
+        cache = train.get(irctc_client.cache_key(quota)) or {}
+        class_code: list[str] = []
         for code, entry in cache.items():
             if not isinstance(entry, dict):
                 continue
-            display = entry.get("availabilityDisplayName")
-            if not display:
+            if not entry.get("availabilityDisplayName"):
                 continue
-            options.append((code, display, _to_int(entry.get("fare")) or None))
-        return options
+            class_code.append(code)
+        return class_code
 
     async def search_trains_between(
         self,
@@ -227,7 +243,7 @@ class IRCTCRailDataProvider:
         # The whole trains-between-stations list, with General + Tatkal offers, in
         # ONE confirmtkt call (shared with the seat-finder's segment cache).
         train_list = await self._client.search_segment(
-            source.upper(), destination.upper(), format_date(journey_date)
+            source.upper(), destination.upper(), irctc_client.format_date(journey_date)
         )
         return build_raw_trains_between(train_list)
 
@@ -241,6 +257,9 @@ class IRCTCRailDataProvider:
         # One confirmtkt call with quota=LD|SS fills availabilityCacheForQuota for
         # every train on the leg (shares the seat-finder's per-quota segment cache).
         train_list = await self._client.search_segment(
-            source.upper(), destination.upper(), format_date(journey_date), quota
+            source.upper(),
+            destination.upper(),
+            irctc_client.format_date(journey_date),
+            quota,
         )
         return build_quota_rows(train_list)

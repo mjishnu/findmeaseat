@@ -39,7 +39,7 @@ export function ResultsList({ data }: ResultsListProps) {
               key={`${rec.book_from}-${rec.book_to}`}
               className={rec.rank === 1 ? 'md:col-span-2' : ''}
             >
-              <RecommendationCard rec={rec} highlight={rec.rank === 1} />
+              <RecommendationCard rec={rec} quota={data.quota} highlight={rec.rank === 1} />
             </div>
           ))}
         </div>

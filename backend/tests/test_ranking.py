@@ -6,7 +6,9 @@ from app.schemas import ParsedAvailability, Quota
 
 
 def _wl(current: int = 5, quota: Quota = Quota.GNWL) -> ParsedAvailability:
-    return ParsedAvailability(raw="x", status=S.WAITLIST, quota=quota, current_wl=current)
+    return ParsedAvailability(
+        raw="x", status=S.WAITLIST, quota=quota, current_wl=current
+    )
 
 
 def _status(status: S, **kw) -> ParsedAvailability:
@@ -19,9 +21,14 @@ def test_waitlist_uses_confirmtkt_prediction():
     assert confirmation_probability(_wl(), prediction_pct=0) == 0.0
 
 
-def test_waitlist_without_prediction_is_none():
-    assert confirmation_probability(_wl(), prediction_pct=None) is None
-    assert confirmation_probability(_wl()) is None  # default
+def test_waitlist_without_prediction_returns_sentinel():
+    assert confirmation_probability(_wl(), prediction_pct=None) == -1.0
+    assert confirmation_probability(_wl()) == -1.0  # default
+
+
+def test_waitlist_probability_stays_below_rac_and_available():
+    assert confirmation_probability(_wl(), prediction_pct=100) < P_RAC
+    assert confirmation_probability(_wl(), prediction_pct=100) < P_AVAILABLE
 
 
 def test_class_is_no_longer_inferred_from_waitlist_number():
@@ -32,7 +39,10 @@ def test_class_is_no_longer_inferred_from_waitlist_number():
 
 def test_available_and_rac_use_status_priors_regardless_of_prediction():
     assert confirmation_probability(_status(S.AVAILABLE, seats=5)) == P_AVAILABLE
-    assert confirmation_probability(_status(S.AVAILABLE, seats=5), prediction_pct=10) == P_AVAILABLE
+    assert (
+        confirmation_probability(_status(S.AVAILABLE, seats=5), prediction_pct=10)
+        == P_AVAILABLE
+    )
     assert confirmation_probability(_status(S.RAC, current_wl=3)) == P_RAC
 
 
@@ -41,8 +51,8 @@ def test_unbookable_statuses_score_zero():
     assert confirmation_probability(_status(S.UNKNOWN)) == 0.0
 
 
-def test_option_score_is_none_when_probability_is_none():
-    assert option_score(None, extra_fare=0, user_leg_fare=205, extra_km=0, user_leg_km=170) is None
+def test_option_score_sentinel_when_probability_negative():
+    assert option_score(-1.0, extra_fare=0, user_leg_fare=205, extra_km=0, user_leg_km=170) == -1.0
 
 
 def test_no_penalty_for_exact_leg():

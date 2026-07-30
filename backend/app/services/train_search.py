@@ -5,6 +5,7 @@ leg (raw per-class offers for both quotas), then normalize each raw availability
 string through the shared parser + ranking — so train-search availability reads
 exactly like the seat-finder's.
 """
+
 import datetime as dt
 
 from app.core.dates import validate_journey_date
@@ -94,6 +95,6 @@ class TrainSearchService:
         return ClassAvailability(
             travel_class=offer.travel_class,
             availability=parsed,
-            probability=round(p, 3) if p is not None else None,
+            probability=round(p, 3),
             fare=offer.fare or None,  # 0/None -> None: never render a misleading "₹0"
         )

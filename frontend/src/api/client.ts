@@ -16,6 +16,19 @@ export const TRAVEL_CLASSES = [
 export type TravelClass = (typeof TRAVEL_CLASSES)[number]['value']
 export const DEFAULT_TRAVEL_CLASS: TravelClass = 'SL'
 
+export const RECOMMENDATION_NOTE_CODE = {
+  QUOTA_TATKAL: 1,
+  QUOTA_LADIES: 2,
+  QUOTA_SENIOR: 3,
+  BOARDING_CHANGE: 4,
+  EXTRA_FARE: 5,
+  ALIGHT_CHANGE: 6,
+  MISSING_PREDICTION: 7,
+} as const
+
+export type RecommendationNoteCode =
+  (typeof RECOMMENDATION_NOTE_CODE)[keyof typeof RECOMMENDATION_NOTE_CODE]
+
 // Booking quota for the seat-finder. Values are the codes the backend's
 // BookingQuota enum accepts (General vs Tatkal).
 export const QUOTAS = [
@@ -40,12 +53,22 @@ export interface TrainRoute {
   stations: StationStop[]
 }
 
+// Must stay in sync with AvailabilityStatus IntEnum in backend/app/schemas.py
+export const AvailabilityStatus = {
+  NOT_BOOKABLE: 0,
+  UNKNOWN: 1,
+  WAITLIST: 2,
+  RAC: 3,
+  AVAILABLE: 4,
+} as const
+
+export type AvailabilityStatus = (typeof AvailabilityStatus)[keyof typeof AvailabilityStatus]
+
 export interface ParsedAvailability {
   raw: string
-  status: 'AVAILABLE' | 'RAC' | 'WAITLIST' | 'NOT_BOOKABLE' | 'UNKNOWN'
+  status: AvailabilityStatus
   quota: string | null
   seats: number | null
-  series_wl: number | null
   current_wl: number | null
 }
 
@@ -55,16 +78,12 @@ export interface Recommendation {
   book_to: string
   board_at: string
   alight_at: string
-  action: string
   availability: ParsedAvailability
-  probability: number | null
-  score: number | null
-  booked_distance_km: number
+  probability: number  // -1 when confirmtkt has no estimate
   extra_km: number
   fare: number | null
   extra_fare: number | null
-  requires_boarding_change: boolean
-  notes: string[]
+  notes: RecommendationNoteCode[]
 }
 
 export interface UserLeg {
@@ -79,7 +98,7 @@ export interface SwitchAlternative {
   travel_class: TravelClass
   quota: BookingQuota
   availability: ParsedAvailability
-  probability: number | null
+  probability: number  // -1 = no estimate
   fare: number | null
   fare_delta: number | null
 }
@@ -167,7 +186,7 @@ export interface Station {
 export interface ClassAvailability {
   travel_class: TravelClass
   availability: ParsedAvailability
-  probability: number | null
+  probability: number  // -1 when confirmtkt has no estimate
   fare: number | null
 }
 

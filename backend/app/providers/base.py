@@ -1,8 +1,15 @@
 """The seam between the app and its data source."""
+
 import datetime as dt
 from typing import Protocol
 
-from app.schemas import BookingQuota, RawClassOffer, RawTrainBetween, TrainRoute, TravelClass
+from app.schemas import (
+    BookingQuota,
+    RawClassOffer,
+    RawTrainBetween,
+    TrainRoute,
+    TravelClass,
+)
 
 
 class RailDataProvider(Protocol):
@@ -45,6 +52,7 @@ class RailDataProvider(Protocol):
         travel_class: TravelClass,
         quota: BookingQuota = BookingQuota.GENERAL,
     ) -> int | None: ...
+
     # confirmtkt's predictionPercentage for this cell, read from the SAME cached
     # entry as get_seat_status (no extra request). None when the class/segment has
     # no prediction; a real 0 is preserved (un-bookable rows are filtered earlier
@@ -60,17 +68,18 @@ class RailDataProvider(Protocol):
         quota: BookingQuota = BookingQuota.GENERAL,
     ) -> int | None: ...  # None when the class isn't priced/offered on this leg
 
-    async def get_class_options(
+    async def get_train_classes(
         self,
         train_number: str,
         source: str,
         destination: str,
         journey_date: dt.date,
         quota: BookingQuota = BookingQuota.GENERAL,
-    ) -> list[tuple[str, str, int | None]]: ...
-    # (class_code, RAW availability string, fare) for every class the train
-    # offers on this leg in `quota` — used to suggest a better class/quota. Reuses
-    # the same upstream response as get_seat_status, so it costs no extra request.
+    ) -> list[str]: ...
+
+    # One class code for every class the train offers on this leg in `quota`.
+    # Reuses the same upstream response as get_seat_status, so it costs no extra
+    # request.
 
     async def search_trains_between(
         self,
@@ -78,6 +87,7 @@ class RailDataProvider(Protocol):
         destination: str,
         journey_date: dt.date,
     ) -> list[RawTrainBetween]: ...
+
     # Every train running source→destination on the date, each with RAW per-class
     # availability for BOTH General and Tatkal quotas. The service normalizes the
     # raw strings (parser + ranking) into the public TrainsBetweenResponse.
@@ -89,6 +99,7 @@ class RailDataProvider(Protocol):
         journey_date: dt.date,
         quota: BookingQuota,
     ) -> list[tuple[str, str, str, list[RawClassOffer]]]: ...
+
     # Per-train (train_number, from_code, departure_time, RAW per-class offers) for one
     # quota (LD/SS), read from confirmtkt's availabilityCacheForQuota. The service
     # normalizes the raw strings into TrainsQuotaAvailabilityResponse.

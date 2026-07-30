@@ -9,7 +9,12 @@ from app.exceptions import (
     ProviderUnavailableError,
     TrainNotFoundError,
 )
-from app.schemas import AvailabilityStatus, BookingQuota, TravelClass
+from app.schemas import (
+    AvailabilityStatus,
+    BookingQuota,
+    RecommendationNoteCode,
+    TravelClass,
+)
 from app.services.recommendations import RecommendationService, booking_day_today
 from tests.conftest import StubProvider, tomorrow
 
@@ -41,28 +46,34 @@ async def test_ranks_better_quota_from_earlier_station_first(service):
     # AVAILABLE leads by status tier; among the waitlists, the higher confirmtkt
     # prediction (A->D 0.80) outranks the lower one (C->D 0.30).
     assert res.recommendations[0].availability.status is AvailabilityStatus.AVAILABLE
-    wl = [r for r in res.recommendations if r.availability.status is AvailabilityStatus.WAITLIST]
+    wl = [
+        r
+        for r in res.recommendations
+        if r.availability.status is AvailabilityStatus.WAITLIST
+    ]
     assert [r.probability for r in wl] == [0.8, 0.3]
 
 
 async def test_action_strings_explain_the_booking(service):
     res = await service.find_optimal_route("12345", "C", "D", tomorrow())
     by_leg = {(r.book_from, r.book_to): r for r in res.recommendations}
-    assert (
-        by_leg[("A", "F")].action
-        == "Book A to F, board at C, alight at D. Status: AVAILABLE (10 seats)"
-    )
-    assert by_leg[("A", "D")].action == "Book A to D, board at C. Status: GNWL 10"
-    assert by_leg[("C", "D")].action == "Book C to D, board at C. Status: PQWL 8"
+    assert by_leg[("A", "F")].board_at == "C"
+    assert by_leg[("A", "F")].alight_at == "D"
+    assert by_leg[("A", "D")].board_at == "C"
+    assert by_leg[("C", "D")].book_from == "C"
 
 
 async def test_boarding_change_and_refund_notes(service):
     res = await service.find_optimal_route("12345", "C", "D", tomorrow())
-    early = next(r for r in res.recommendations if r.book_from == "A" and r.book_to == "D")
+    early = next(
+        r for r in res.recommendations if r.book_from == "A" and r.book_to == "D"
+    )
     assert early.requires_boarding_change is True
-    assert any("boarding point" in n.lower() for n in early.notes)
-    assert any("not refundable" in n.lower() for n in early.notes)
-    exact = next(r for r in res.recommendations if (r.book_from, r.book_to) == ("C", "D"))
+    assert RecommendationNoteCode.BOARDING_CHANGE in early.notes
+    assert RecommendationNoteCode.EXTRA_FARE in early.notes
+    exact = next(
+        r for r in res.recommendations if (r.book_from, r.book_to) == ("C", "D")
+    )
     assert exact.requires_boarding_change is False
     assert exact.extra_km == 0 and exact.extra_fare == 0
 
@@ -77,7 +88,9 @@ async def test_user_leg_echoes_baseline_status(service):
 
 async def test_travel_class_is_echoed():
     service = RecommendationService(StubProvider(STATUSES, predictions=PREDICTIONS))
-    res = await service.find_optimal_route("12345", "C", "D", tomorrow(), TravelClass.AC2)
+    res = await service.find_optimal_route(
+        "12345", "C", "D", tomorrow(), TravelClass.AC2
+    )
     assert res.travel_class is TravelClass.AC2
     # Defaulted when omitted.
     res_default = await service.find_optimal_route("12345", "C", "D", tomorrow())
@@ -102,17 +115,15 @@ async def test_waitlist_without_estimate_is_ranked_last_and_flagged():
     res = await svc.find_optimal_route("12345", "C", "D", tomorrow())
     legs = [(r.book_from, r.book_to) for r in res.recommendations]
     assert legs.index(("A", "D")) < legs.index(("C", "D"))
-    no_est = next(r for r in res.recommendations if (r.book_from, r.book_to) == ("C", "D"))
+    no_est = next(
+        r for r in res.recommendations if (r.book_from, r.book_to) == ("C", "D")
+    )
     assert no_est.probability is None and no_est.score is None
-    assert any("no confirmation estimate" in n.lower() for n in no_est.notes)
+    assert RecommendationNoteCode.MISSING_PREDICTION in no_est.notes
 
 
 async def test_at_most_three_recommendations():
-    everything_open = {
-        (s, d): "AVAILABLE 5"
-        for s in "ABC"
-        for d in "DEF"
-    }
+    everything_open = {(s, d): "AVAILABLE 5" for s in "ABC" for d in "DEF"}
     service = RecommendationService(StubProvider(everything_open))
     res = await service.find_optimal_route("12345", "C", "D", tomorrow())
     assert len(res.recommendations) == 3
@@ -147,9 +158,13 @@ async def test_station_input_is_normalized(service):
 async def test_past_and_far_future_dates_rejected(service):
     today = booking_day_today()
     with pytest.raises(InvalidJourneyDateError, match="past"):
-        await service.find_optimal_route("12345", "C", "D", today - dt.timedelta(days=1))
+        await service.find_optimal_route(
+            "12345", "C", "D", today - dt.timedelta(days=1)
+        )
     with pytest.raises(InvalidJourneyDateError, match="advance reservation"):
-        await service.find_optimal_route("12345", "C", "D", today + dt.timedelta(days=61))
+        await service.find_optimal_route(
+            "12345", "C", "D", today + dt.timedelta(days=61)
+        )
 
 
 class _FlakyProvider(StubProvider):
@@ -161,7 +176,12 @@ class _FlakyProvider(StubProvider):
         self._exc = exc
 
     async def get_seat_status(
-        self, train_number, source, destination, journey_date, travel_class,
+        self,
+        train_number,
+        source,
+        destination,
+        journey_date,
+        travel_class,
         quota=BookingQuota.GENERAL,
     ):
         if (source, destination) == self._fail_pair:
@@ -174,11 +194,15 @@ class _FlakyProvider(StubProvider):
 async def test_one_pair_upstream_failure_degrades_instead_of_503():
     # One alternate pair (A→F) hits a transient upstream error; the search must
     # still return the surviving pairs rather than failing the whole request.
-    provider = _FlakyProvider(STATUSES, ("A", "F"), ProviderUnavailableError("flaky upstream"))
-    res = await RecommendationService(provider).find_optimal_route("12345", "C", "D", tomorrow())
+    provider = _FlakyProvider(
+        STATUSES, ("A", "F"), ProviderUnavailableError("flaky upstream")
+    )
+    res = await RecommendationService(provider).find_optimal_route(
+        "12345", "C", "D", tomorrow()
+    )
     legs = [(r.book_from, r.book_to) for r in res.recommendations]
-    assert ("A", "F") not in legs                       # the failed pair is dropped
-    assert ("A", "D") in legs and ("C", "D") in legs    # survivors still ranked
+    assert ("A", "F") not in legs  # the failed pair is dropped
+    assert ("A", "D") in legs and ("C", "D") in legs  # survivors still ranked
     assert res.pairs_skipped == 1
     assert res.pairs_evaluated == 9
 
@@ -187,7 +211,9 @@ async def test_unexpected_pair_error_is_not_masked():
     # A non-provider error is a real bug and must propagate, not be swallowed.
     provider = _FlakyProvider(STATUSES, ("A", "D"), ValueError("genuine bug"))
     with pytest.raises(ValueError):
-        await RecommendationService(provider).find_optimal_route("12345", "C", "D", tomorrow())
+        await RecommendationService(provider).find_optimal_route(
+            "12345", "C", "D", tomorrow()
+        )
 
 
 async def test_stray_cancellation_on_one_pair_is_degraded_not_500():
@@ -195,7 +221,9 @@ async def test_stray_cancellation_on_one_pair_is_degraded_not_500():
     # 500 a healthy request — it degrades to a skipped pair (this task itself was
     # never cancelled, so gather returns it as a result rather than raising).
     provider = _FlakyProvider(STATUSES, ("A", "F"), asyncio.CancelledError())
-    res = await RecommendationService(provider).find_optimal_route("12345", "C", "D", tomorrow())
+    res = await RecommendationService(provider).find_optimal_route(
+        "12345", "C", "D", tomorrow()
+    )
     assert res.pairs_skipped == 1
     legs = [(r.book_from, r.book_to) for r in res.recommendations]
     assert ("A", "F") not in legs
@@ -220,15 +248,21 @@ async def test_same_fare_lower_waitlist_earlier_station_ranks_first():
     # With confirmtkt predictions: B→D has higher probability (70%) than C→D (40%).
     statuses = {("C", "D"): "GNWL 8/WL 7", ("B", "D"): "GNWL 6/WL 5"}
     predictions = {("C", "D"): 40, ("B", "D"): 70}
-    service = RecommendationService(_EqualFareProvider(statuses, predictions=predictions))
+    service = RecommendationService(
+        _EqualFareProvider(statuses, predictions=predictions)
+    )
     res = await service.find_optimal_route("12345", "C", "D", tomorrow())
     top = res.recommendations[0]
-    assert (top.book_from, top.book_to) == ("B", "D")   # higher prediction wins
+    assert (top.book_from, top.book_to) == ("B", "D")  # higher prediction wins
     assert top.availability.current_wl == 5
     assert top.extra_fare == 0
-    direct = next(r for r in res.recommendations if (r.book_from, r.book_to) == ("C", "D"))
+    direct = next(
+        r for r in res.recommendations if (r.book_from, r.book_to) == ("C", "D")
+    )
     assert direct.availability.current_wl == 7
-    assert res.recommendations.index(direct) > 0          # the lower-prediction direct ranks below
+    assert (
+        res.recommendations.index(direct) > 0
+    )  # the lower-prediction direct ranks below
 
 
 async def test_class_alternative_shows_best_odds_across_pairs_not_direct_leg():
@@ -236,10 +270,10 @@ async def test_class_alternative_shows_best_odds_across_pairs_not_direct_leg():
     # WL25; 1A is WL3 direct yet AVAILABLE from the earliest station. The banner
     # must show 1A's BEST achievable odds (AVAILABLE), not its direct-leg WL3.
     statuses = {
-        ("C", "D", "SL"): "Train Departed",   # searched class, direct: departed
-        ("B", "D", "SL"): "GNWL 30/WL 25",    # but bookable one stop earlier
-        ("C", "D", "1A"): "GNWL 5/WL 3",      # 1A direct: WL3
-        ("A", "D", "1A"): "AVAILABLE 5",      # 1A from the origin: a seat!
+        ("C", "D", "SL"): "Train Departed",  # searched class, direct: departed
+        ("B", "D", "SL"): "GNWL 30/WL 25",  # but bookable one stop earlier
+        ("C", "D", "1A"): "GNWL 5/WL 3",  # 1A direct: WL3
+        ("A", "D", "1A"): "AVAILABLE 5",  # 1A from the origin: a seat!
     }
     provider = StubProvider(statuses, class_options={"SL": 175, "1A": 1190})
     res = await RecommendationService(provider).find_optimal_route(
@@ -247,7 +281,7 @@ async def test_class_alternative_shows_best_odds_across_pairs_not_direct_leg():
     )
     assert [a.travel_class for a in res.alternatives] == [TravelClass.AC1]
     alt = res.alternatives[0]
-    assert alt.quota is BookingQuota.GENERAL                          # same quota, class switch
+    assert alt.quota is BookingQuota.GENERAL  # same quota, class switch
     assert alt.availability.status is AvailabilityStatus.AVAILABLE  # not WAITLIST/WL3
     assert alt.probability == pytest.approx(0.99)
 
@@ -284,8 +318,7 @@ async def test_tatkal_recommendations_mention_the_quota():
     )
     assert res.recommendations
     top = res.recommendations[0]
-    assert "Tatkal quota" in top.action
-    assert any("Tatkal" in n for n in top.notes)
+    assert RecommendationNoteCode.QUOTA_TATKAL in top.notes
 
 
 async def test_alternatives_never_propose_a_different_quota():
@@ -359,7 +392,7 @@ async def test_alternatives_capped_at_three_and_sorted_by_probability():
         ("C", "D", "CC", "GN"): "AVAILABLE 9",
     }
     predictions = {
-        ("C", "D", "SL", "GN"): 5,   # searched: very poor odds
+        ("C", "D", "SL", "GN"): 5,  # searched: very poor odds
         ("C", "D", "3A", "GN"): 60,  # WL alternative with prediction
         ("C", "D", "2A", "GN"): 70,  # WL alternative with prediction
     }
@@ -386,12 +419,16 @@ class _NoFareProvider(StubProvider):
 
 async def test_missing_fare_yields_none_not_zero():
     provider = _NoFareProvider({("C", "D"): "AVAILABLE 5", ("A", "F"): "AVAILABLE 5"})
-    res = await RecommendationService(provider).find_optimal_route("12345", "C", "D", tomorrow())
+    res = await RecommendationService(provider).find_optimal_route(
+        "12345", "C", "D", tomorrow()
+    )
     assert res.user_leg.fare is None
     for r in res.recommendations:
         assert r.fare is None
-        assert r.extra_fare is None                       # not a negative number
-        assert not any("Costs" in n for n in r.notes)     # no misleading cost note
+        assert r.extra_fare is None  # not a negative number
+        assert (
+            RecommendationNoteCode.EXTRA_FARE not in r.notes
+        )  # no misleading cost note
 
 
 async def test_ladies_quota_recommendation_carries_ladies_note_and_action():
@@ -400,5 +437,6 @@ async def test_ladies_quota_recommendation_carries_ladies_note_and_action():
         "12345", "A", "F", tomorrow(), TravelClass.SL, BookingQuota.LADIES
     )
     assert res.quota is BookingQuota.LADIES
-    assert any("Ladies quota" in n for rec in res.recommendations for n in rec.notes)
-    assert any("in Ladies quota" in rec.action for rec in res.recommendations)
+    assert any(
+        RecommendationNoteCode.QUOTA_LADIES in rec.notes for rec in res.recommendations
+    )

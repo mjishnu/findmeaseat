@@ -1,13 +1,72 @@
-import type { Recommendation } from '../api/client'
+import {
+  AvailabilityStatus,
+  RECOMMENDATION_NOTE_CODE,
+  type BookingQuota,
+  type Recommendation,
+  type RecommendationNoteCode,
+} from '../api/client'
 import { ProbabilityMeter } from './ProbabilityMeter'
 import { StatusBadge } from './StatusBadge'
 
 interface RecommendationCardProps {
   rec: Recommendation
+  quota: BookingQuota
   highlight?: boolean
 }
 
-export function RecommendationCard({ rec, highlight = false }: RecommendationCardProps) {
+function formatAvailabilityLabel(rec: Recommendation): string {
+  switch (rec.availability.status) {
+    case AvailabilityStatus.AVAILABLE:
+      return rec.availability.seats ? `AVAILABLE (${rec.availability.seats} seats)` : 'AVAILABLE'
+    case AvailabilityStatus.RAC:
+      return rec.availability.current_wl ? `RAC ${rec.availability.current_wl}` : 'RAC'
+    case AvailabilityStatus.WAITLIST:
+      return rec.availability.quota && rec.availability.current_wl
+        ? `${rec.availability.quota} ${rec.availability.current_wl}`
+        : rec.availability.raw
+    default:
+      return rec.availability.raw
+  }
+}
+
+function renderNote(note: RecommendationNoteCode, rec: Recommendation): string {
+  switch (note) {
+    case RECOMMENDATION_NOTE_CODE.QUOTA_TATKAL:
+      return 'Book under the Tatkal quota on IRCTC — it opens ~1 day before travel and carries a higher fare than General.'
+    case RECOMMENDATION_NOTE_CODE.QUOTA_LADIES:
+      return 'Book under the Ladies quota on IRCTC — reserved for women travellers (and a child under 12 travelling with them).'
+    case RECOMMENDATION_NOTE_CODE.QUOTA_SENIOR:
+      return 'Book under the Senior Citizen quota on IRCTC — for eligible senior citizens; carry valid age proof.'
+    case RECOMMENDATION_NOTE_CODE.BOARDING_CHANGE:
+      return `Change the boarding point to ${rec.board_at} on IRCTC immediately after booking — without it the TTE can mark you absent and release the berth.`
+    case RECOMMENDATION_NOTE_CODE.EXTRA_FARE:
+      return `Costs ₹${rec.extra_fare} more than the direct ${rec.board_at}→${rec.alight_at} fare; the unused distance is not refundable.`
+    case RECOMMENDATION_NOTE_CODE.ALIGHT_CHANGE:
+      return `Get off at ${rec.alight_at}; the ticket runs on to ${rec.book_to} but the difference is not refunded.`
+    case RECOMMENDATION_NOTE_CODE.MISSING_PREDICTION:
+      return 'confirmtkt has no confirmation estimate for this leg; ranked last.'
+    default:
+      return note
+  }
+}
+
+function buildAction(rec: Recommendation, quota: string): string {
+  let action = `Book ${rec.book_from} to ${rec.book_to}, board at ${rec.board_at}`
+  if (rec.book_to !== rec.alight_at) {
+    action += `, alight at ${rec.alight_at}`
+  }
+  if (quota === 'TQ') {
+    action += ' in Tatkal quota'
+  } else if (quota === 'LD') {
+    action += ' in Ladies quota'
+  } else if (quota === 'SS') {
+    action += ' in Senior Citizen quota'
+  }
+  action += `. Status: ${formatAvailabilityLabel(rec)}`
+  return action
+}
+
+export function RecommendationCard({ rec, quota, highlight = false }: RecommendationCardProps) {
   return (
     <article
       className={`overflow-hidden rounded-xl border bg-paper-50 shadow-sm transition-shadow hover:shadow-md ${
@@ -48,7 +107,7 @@ export function RecommendationCard({ rec, highlight = false }: RecommendationCar
       </div>
 
       <div className="space-y-4 px-5 pb-5 pt-4">
-        <p className="text-sm leading-relaxed text-rail-950">{rec.action}</p>
+        <p className="text-sm leading-relaxed text-rail-950">{buildAction(rec, quota)}</p>
 
         <div>
           <p className="mb-1 font-ticket text-[11px] uppercase tracking-[0.18em] text-rail-700">
@@ -80,12 +139,12 @@ export function RecommendationCard({ rec, highlight = false }: RecommendationCar
 
         {rec.notes.length > 0 && (
           <ul className="space-y-1.5 border-t border-rail-200/70 pt-3">
-            {rec.notes.map((note) => (
-              <li key={note} className="flex gap-2 text-xs leading-relaxed text-rail-700">
+            {rec.notes.map((note, index) => (
+              <li key={`${note}-${index}`} className="flex gap-2 text-xs leading-relaxed text-rail-700">
                 <span aria-hidden className="text-signal-amber-deep">
                   ⚠
                 </span>
-                {note}
+                {renderNote(note, rec)}
               </li>
             ))}
           </ul>
