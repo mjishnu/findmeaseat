@@ -26,7 +26,7 @@ ML confirmation prediction from `confirmtkt`. No database, no auth.
 HTTP ─► routers ─► services ─► core (pure logic: parser · pairs · ranking · dates)
                        │
                        └─► provider (RailDataProvider Protocol)
-                                └── irctc/  ← the only live source (erail + confirmtkt)
+                                └── prefetched/  ← Reads from pre-parsed JSON via Manifests
 ```
 
 The rule that makes it readable: **dependencies point one way, down.** `core/`
@@ -98,9 +98,8 @@ in isolation.
 - [backend/app/routers/routes.py](../backend/app/routers/routes.py) — the five
   endpoints. FastAPI's `Query`/`Path` validators do all input validation (a bad
   train number / class / date 422s before any service runs).
-- [backend/app/dependencies.py](../backend/app/dependencies.py) — **the swap
-  point.** `_build_provider()` returns `IRCTCRailDataProvider()`. Change one line
-  to swap data sources. The provider and station directory are lazy singletons.
+- [backend/app/dependencies.py](../backend/app/dependencies.py) — **the dependencies point.**
+  Provides `ManifestStore` and `StationDirectory` to endpoints. The station directory is a lazy singleton.
 - [backend/app/exceptions.py](../backend/app/exceptions.py) — domain errors with
   HTTP status codes. Services raise these; `main.py` maps them to JSON. Note
   `ProviderUnavailableError` → 503 (upstream died) is distinct from
@@ -109,22 +108,17 @@ in isolation.
   `AppError` handler, router include, and a lifespan hook that closes the
   provider's HTTP client on shutdown.
 
-### 5. The live provider — the only part that touches the network
+### 5. Client-Side Fetch Manifests — The Browser is the HTTP Client
 
-- [backend/app/providers/irctc/provider.py](../backend/app/providers/irctc/provider.py)
-  — a thin adapter: shapes confirmtkt JSON into the app's schemas and returns
-  availability strings **unparsed**. The key efficiency: `get_seat_status`,
-  `get_fare`, `get_seat_prediction`, and `get_train_classes` all read from the
-  **same cached confirmtkt response** for a pair — one network call serves four
-  methods.
+To avoid backend rate-limiting, the server makes **zero** outbound HTTP calls. Instead, the backend returns a **Manifest** of URLs to fetch, the browser executes them concurrently, and submits the raw JSON back to a `/process` endpoint.
+
+- [backend/app/providers/prefetched/provider.py](../backend/app/providers/prefetched/provider.py)
+  — The single provider implementation. Reads availability directly from pre-parsed `trainList` dicts (from browser fetches or the segment cache).
 - [backend/app/providers/irctc/client.py](../backend/app/providers/irctc/client.py)
-  — the HTTP layer. The hard parts:
-  - retry + backoff; raises `ProviderUnavailableError` on persistent failure.
-  - **two LRU caches** (route, segment) so a whole search is cheap.
-  - **single-flight**: concurrent callers for the same key share one request —
-    a pair's status + fare collapse into one confirmtkt fetch.
-  - a `Semaphore` caps total outbound concurrency to stay polite upstream.
-  - parses erail's `~`-delimited text protocol into a route.
+  — Parsing helpers (`parse_erail_header`, `class_cache`) and URL builders. There is no HTTP client here.
+- **Two backend caches** in `core/`:
+  - `route_cache`: Stores parsed routes to avoid re-asking the browser to hit erail.
+  - `segment_cache`: Stores parsed confirmtkt trainLists for 60s, allowing overlaps across pairs/searches to skip fetching entirely.
 
 ## The core algorithm, end to end
 
@@ -148,9 +142,8 @@ Failures degrade, never crash: a bad pair is skipped, an unknown string becomes
 React + Vite + Tailwind. The backend does the thinking; the UI submits forms and
 renders responses.
 
-- [frontend/src/api/client.ts](../frontend/src/api/client.ts) — all fetch calls
-  and TypeScript types. **These types mirror `schemas.py` by hand** — keep the
-  two in sync when you change a model.
+- [frontend/src/api/client.ts](../frontend/src/api/client.ts) — all fetch calls,
+  TypeScript types, and the **Manifest Execution Loop**. It recursively fetches URLs from `/manifest`, passes them to `/process`, and pre-parses bulky confirmtkt responses to dramatically reduce upload size before sending to the backend. Types mirror `schemas.py`.
 - [frontend/src/App.tsx](../frontend/src/App.tsx) — two routes (`/train-search`,
   `/seat-finder`). Each view is URL-linkable; the Seat Finder reads its prefill
   from the query string, so a deep link auto-searches.
@@ -172,7 +165,7 @@ renders responses.
 | --- | --- |
 | Tune ranking (waitlist curve, cost penalty) | [core/ranking.py](../backend/app/core/ranking.py) |
 | Support a new availability string format | [core/parser.py](../backend/app/core/parser.py) |
-| Swap the data source | [dependencies.py](../backend/app/dependencies.py) + a new `RailDataProvider` |
+| Swap the data source | Write a new `RailDataProvider` and wire it into the `routers/routes.py` process steps |
 | Change date / advance-window rules | [core/dates.py](../backend/app/core/dates.py) |
 | Add an endpoint | [routers/routes.py](../backend/app/routers/routes.py) |
 | Add/rename a field on a response | [schemas.py](../backend/app/schemas.py) **and** [api/client.ts](../frontend/src/api/client.ts) |

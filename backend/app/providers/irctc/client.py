@@ -102,14 +102,6 @@ def build_confirmtkt_descriptor(
                            headers=_BROWSER_HEADERS, fetch_id=fetch_id)
 
 
-def find_train(train_list: list[dict], train_number: str) -> dict | None:
-    target = str(train_number)
-    for train in train_list:
-        if str(train.get("trainNumber")) == target:
-            return train
-    return None
-
-
 # confirmtkt cache key per quota: GN/TQ are bundled on the train object; LD/SS land
 # in a single availabilityCacheForQuota filled by a quota=-parameterised search.
 _QUOTA_CACHE_KEY = {

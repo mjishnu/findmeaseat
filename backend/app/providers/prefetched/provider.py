@@ -1,11 +1,14 @@
 from app.core.manifest_store import SeatFinderEntry
-from app.providers.irctc.client import _to_int, cache_key, class_cache, find_train
+from app.providers.irctc.client import _to_int, cache_key, class_cache
 from app.schemas import BookingQuota, TrainRoute
 
 
 class PreFetchedProvider:
     """RailDataProvider that reads from pre-parsed confirmtkt trainList dicts.
-    Data may come from browser fetches, segment cache, or both."""
+    Data may come from browser fetches, segment cache, or both.
+
+    The frontend pre-filters each trainList to only the target train, so
+    _get_train just takes the first element from the list."""
 
     def __init__(
         self,
@@ -15,14 +18,18 @@ class PreFetchedProvider:
         self._entry = entry
         self._parsed = parsed_segments
 
+    def _get_train(self, source: str, destination: str) -> dict | None:
+        """Return the (single) train dict for this segment, or None."""
+        trains = self._parsed.get(f"{source}|{destination}", [])
+        return trains[0] if trains else None
+
     async def get_route(self, train_number: str) -> TrainRoute | None:
         return self._entry.route
 
     async def get_seat_status(self, train_number, source, destination,
                                journey_date, travel_class,
                                quota=BookingQuota.GENERAL) -> str:
-        fid = f"{source}|{destination}"
-        train = find_train(self._parsed.get(fid, []), train_number)
+        train = self._get_train(source, destination)
         if train is None:
             return "NOT AVAILABLE"
         cache_entry = class_cache(train, travel_class.value, quota)
@@ -32,19 +39,15 @@ class PreFetchedProvider:
     async def get_fare(self, train_number, source, destination,
                         journey_date, travel_class,
                         quota=BookingQuota.GENERAL) -> int | None:
-        fid = f"{source}|{destination}"
-        train = find_train(self._parsed.get(fid, []), train_number)
+        train = self._get_train(source, destination)
         if train is None:
             return None
-        # Use .get() not [] to avoid KeyError; or None coerces 0 → None
-        # matching the live provider (provider.py:178–183).
         return _to_int(class_cache(train, travel_class.value, quota).get("fare")) or None
 
     async def get_seat_prediction(self, train_number, source, destination,
                                     journey_date, travel_class,
                                     quota=BookingQuota.GENERAL) -> int | None:
-        fid = f"{source}|{destination}"
-        train = find_train(self._parsed.get(fid, []), train_number)
+        train = self._get_train(source, destination)
         if train is None:
             return None
         return _to_int(class_cache(train, travel_class.value, quota).get("predictionPercentage"))
@@ -52,11 +55,7 @@ class PreFetchedProvider:
     async def get_train_classes(self, train_number, source, destination,
                                  journey_date,
                                  quota=BookingQuota.GENERAL) -> list[str]:
-        # The blob has ALL classes the train offers (not just the searched class).
-        # Returning real codes lets RecommendationService._build_better_alternatives
-        # work naturally — "switch to 3A" banners come for free.
-        fid = f"{source}|{destination}"
-        train = find_train(self._parsed.get(fid, []), train_number)
+        train = self._get_train(source, destination)
         if train is None:
             return []
         cache = train.get(cache_key(quota)) or {}
