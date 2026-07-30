@@ -9,7 +9,7 @@ whole search.
 
 import re
 
-from app.schemas import AvailabilityStatus, ParsedAvailability, Quota
+from app.schemas import AvailabilityStatus, ParsedAvailability
 
 _NOT_BOOKABLE_TOKENS = (
     "REGRET",
@@ -18,13 +18,12 @@ _NOT_BOOKABLE_TOKENS = (
     "TRAIN CANCELLED",
     "CHARTING DONE",
 )
-_AVAILABLE_RE = re.compile(r"^(?:AVAILABLE|AVL)(?:[-\s]+0*(\d+))?$")
-_CURR_AVL_RE = re.compile(r"^CURR_AVL(?:[-\s]+0*(\d+))?$")
-_HYBRID_AVAILABLE_RE = re.compile(r"/\s*(?:AVAILABLE|AVL)$")
+_AVAILABLE_RE = re.compile(r"^(?:AVAILABLE|AVBL|AVL)(?:[-\s]*0*(\d+))?$")
+_CURR_AVL_RE = re.compile(r"^CURR_AV(?:B?L)(?:[-\s]*0*(\d+))?$")
+_HYBRID_AVAILABLE_RE = re.compile(r"/\s*(?:AVAILABLE|AVBL|AVL)$")
 _RAC_RE = re.compile(r"^RAC[-\s]*0*(\d+)(?:\s*/\s*RAC[-\s]*0*(\d+))?$")
-_WL_RE = re.compile(
-    r"^(GNWL|RLWL|RSWL|PQWL|TQWL|RQWL)[-\s]*0*(\d+)\s*/\s*WL[-\s]*0*(\d+)$"
-)
+_WL_RE = re.compile(r"^[A-Z]+WL[-\s]*0*(?:\d+)\s*/\s*WL[-\s]*0*(\d+)$")
+_WL_RAC_RE = re.compile(r"^[A-Z]+WL[-\s]*0*(?:\d+)\s*/\s*RAC[-\s]*0*(\d+)$")
 _BARE_WL_RE = re.compile(r"^WL[-\s]*0*(\d+)$")
 
 
@@ -43,44 +42,35 @@ def parse_availability(raw: str) -> ParsedAvailability:
             # IRCTC emits "AVAILABLE-0000" when the quota exists but has no
             # berths left — bookable in name only; never recommend it.
             return ParsedAvailability(raw=raw, status=AvailabilityStatus.NOT_BOOKABLE)
-        return ParsedAvailability(
-            raw=raw, status=AvailabilityStatus.AVAILABLE, seats=seats
-        )
+        label = f"AVL {seats}" if seats else "AVL"
+        return ParsedAvailability(raw=label, status=AvailabilityStatus.AVAILABLE)
 
     if m := _CURR_AVL_RE.match(text):
         seats = int(m.group(1)) if m.group(1) else None
         if seats == 0:
             return ParsedAvailability(raw=raw, status=AvailabilityStatus.NOT_BOOKABLE)
-        return ParsedAvailability(
-            raw=raw, status=AvailabilityStatus.AVAILABLE, seats=seats
-        )
+        label = f"AVL {seats}" if seats else "AVL"
+        return ParsedAvailability(raw=label, status=AvailabilityStatus.AVAILABLE)
 
     # "WL3/AVAILABLE": the WL series exists but a booking made now confirms.
     if _HYBRID_AVAILABLE_RE.search(text):
-        return ParsedAvailability(raw=raw, status=AvailabilityStatus.AVAILABLE)
+        return ParsedAvailability(raw="AVL", status=AvailabilityStatus.AVAILABLE)
 
     if m := _RAC_RE.match(text):
-        series = int(m.group(1)) if m.group(2) else None
         current = int(m.group(2) or m.group(1))
-        return ParsedAvailability(
-            raw=raw, status=AvailabilityStatus.RAC, series_wl=series, current_wl=current
-        )
+        return ParsedAvailability(raw=f"RAC {current}", status=AvailabilityStatus.RAC)
 
     if m := _WL_RE.match(text):
-        return ParsedAvailability(
-            raw=raw,
-            status=AvailabilityStatus.WAITLIST,
-            quota=Quota(m.group(1)),
-            current_wl=int(m.group(3)),
-        )
+        current = int(m.group(1))
+        return ParsedAvailability(raw=f"WL {current}", status=AvailabilityStatus.WAITLIST)
+
+    if m := _WL_RAC_RE.match(text):
+        current = int(m.group(1))
+        return ParsedAvailability(raw=f"RAC {current}", status=AvailabilityStatus.RAC)
 
     # Bare "WL 7" (some aggregators) — general series by convention.
     if m := _BARE_WL_RE.match(text):
-        return ParsedAvailability(
-            raw=raw,
-            status=AvailabilityStatus.WAITLIST,
-            quota=Quota.GNWL,
-            current_wl=int(m.group(1)),
-        )
+        current = int(m.group(1))
+        return ParsedAvailability(raw=f"WL {current}", status=AvailabilityStatus.WAITLIST)
 
     return ParsedAvailability(raw=raw, status=AvailabilityStatus.UNKNOWN)

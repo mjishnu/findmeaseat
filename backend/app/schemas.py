@@ -36,18 +36,8 @@ class AvailabilityStatus(IntEnum):
     AVAILABLE = 4
 
 
-class Quota(str, Enum):
-    GNWL = "GNWL"  # general — origin-controlled, best clearance odds
-    RLWL = "RLWL"  # remote location
-    RSWL = "RSWL"  # roadside
-    PQWL = "PQWL"  # pooled — shared by many intermediate pairs
-    TQWL = "TQWL"  # tatkal — cleared after GNWL at charting
-    RQWL = "RQWL"  # request — last resort
-
-
 class BookingQuota(str, Enum):
-    """The quota a ticket is booked UNDER — distinct from `Quota` above, which
-    names a waitlist *type* (GNWL/RLWL/…). GN and TQ come bundled in one confirmtkt
+    """The quota a ticket is booked UNDER. GN and TQ come bundled in one confirmtkt
     response (`availabilityCache` / `availabilityCacheTatkal`), so reading the other
     costs no extra call. LD and SS each require a separate `quota=`-parameterised
     confirmtkt call that fills `availabilityCacheForQuota`. Values are confirmtkt's
@@ -88,20 +78,6 @@ class RecommendationNoteCode(IntEnum):
 class ParsedAvailability(BaseModel):
     raw: str
     status: AvailabilityStatus
-    quota: Quota | None = None
-    seats: int | None = None
-    # For RAC strings the same two slots hold the RAC positions.
-    current_wl: int | None = None  # current queue position — drives ranking
-
-    @property
-    def label(self) -> str:
-        if self.status is AvailabilityStatus.AVAILABLE:
-            return f"AVAILABLE ({self.seats} seats)" if self.seats else "AVAILABLE"
-        if self.status is AvailabilityStatus.RAC:
-            return f"RAC {self.current_wl}" if self.current_wl else "RAC"
-        if self.status is AvailabilityStatus.WAITLIST and self.quota:
-            return f"{self.quota.value} {self.current_wl}"
-        return self.raw
 
 
 # --- Train search (between stations) -------------------------------------------
@@ -236,3 +212,54 @@ class RecommendationResponse(BaseModel):
     # Other (class, quota) cells with a better confirmation chance for the same
     # leg; empty when the searched cell is already the best available.
     alternatives: list[SwitchAlternative] = []
+
+
+# --- Manifest & Fetch Schemas --------------------------------------------------
+
+class FetchDescriptor(BaseModel):
+    url: str
+    headers: dict[str, str]
+    fetch_id: str
+
+
+class ManifestResponse(BaseModel):
+    """Returned by /manifest AND by /process when more fetches are needed."""
+    manifest_id: str
+    fetches: list[FetchDescriptor]
+
+
+class FetchResult(BaseModel):
+    fetch_id: str
+    status: int       # HTTP status the browser got
+    body: str         # raw response text
+
+
+class ProcessRequest(BaseModel):
+    manifest_id: str
+    results: list[FetchResult]
+
+
+class RouteManifestRequest(BaseModel):
+    train_number: str = Field(pattern=r"^\d{5}$")
+
+
+class SeatFinderManifestRequest(BaseModel):
+    train_number: str = Field(pattern=r"^\d{5}$")
+    user_source: str = Field(min_length=1, max_length=5)
+    user_destination: str = Field(min_length=1, max_length=5)
+    date: dt.date
+    travel_class: TravelClass = TravelClass.SL
+    quota: BookingQuota = BookingQuota.GENERAL
+
+
+class TrainSearchManifestRequest(BaseModel):
+    source: str = Field(min_length=1, max_length=5)
+    destination: str = Field(min_length=1, max_length=5)
+    date: dt.date
+
+
+class QuotaSearchManifestRequest(BaseModel):
+    source: str = Field(min_length=1, max_length=5)
+    destination: str = Field(min_length=1, max_length=5)
+    date: dt.date
+    quota: BookingQuota

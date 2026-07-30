@@ -81,25 +81,3 @@ class RailDataProvider(Protocol):
     # Reuses the same upstream response as get_seat_status, so it costs no extra
     # request.
 
-    async def search_trains_between(
-        self,
-        source: str,
-        destination: str,
-        journey_date: dt.date,
-    ) -> list[RawTrainBetween]: ...
-
-    # Every train running source→destination on the date, each with RAW per-class
-    # availability for BOTH General and Tatkal quotas. The service normalizes the
-    # raw strings (parser + ranking) into the public TrainsBetweenResponse.
-
-    async def search_quota_availability(
-        self,
-        source: str,
-        destination: str,
-        journey_date: dt.date,
-        quota: BookingQuota,
-    ) -> list[tuple[str, str, str, list[RawClassOffer]]]: ...
-
-    # Per-train (train_number, from_code, departure_time, RAW per-class offers) for one
-    # quota (LD/SS), read from confirmtkt's availabilityCacheForQuota. The service
-    # normalizes the raw strings into TrainsQuotaAvailabilityResponse.

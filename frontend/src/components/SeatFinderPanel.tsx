@@ -46,7 +46,9 @@ export function SeatFinderPanel({ initialPrefill }: SeatFinderPanelProps) {
       if (err instanceof DOMException && err.name === 'AbortError') return
       const message =
         err instanceof ApiError
-          ? err.message
+          ? err.status === 404
+            ? 'Search expired — please retry'
+            : err.message
           : 'Could not reach the server — is the backend running?'
       setResults({ status: 'error', message })
     }
