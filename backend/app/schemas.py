@@ -1,12 +1,14 @@
 """All Pydantic models and enums shared across layers."""
+
 import datetime as dt
-from enum import Enum
+from enum import Enum, IntEnum
 
 from pydantic import BaseModel, Field
 
 
 class Station(BaseModel):
     """A railway station in the autocomplete directory (static local data)."""
+
     code: str
     name: str
     city: str
@@ -15,7 +17,9 @@ class Station(BaseModel):
 class StationStop(BaseModel):
     code: str
     name: str
-    distance_km: int = Field(ge=0, description="Cumulative distance from the train's origin")
+    distance_km: int = Field(
+        ge=0, description="Cumulative distance from the train's origin"
+    )
 
 
 class TrainRoute(BaseModel):
@@ -24,12 +28,12 @@ class TrainRoute(BaseModel):
     stations: list[StationStop]
 
 
-class AvailabilityStatus(str, Enum):
-    AVAILABLE = "AVAILABLE"
-    RAC = "RAC"
-    WAITLIST = "WAITLIST"
-    NOT_BOOKABLE = "NOT_BOOKABLE"  # REGRET / NOT AVAILABLE / DEPARTED / CANCELLED / CHARTING DONE
-    UNKNOWN = "UNKNOWN"
+class AvailabilityStatus(IntEnum):
+    NOT_BOOKABLE = 0
+    UNKNOWN = 1
+    WAITLIST = 2
+    RAC = 3
+    AVAILABLE = 4
 
 
 class Quota(str, Enum):
@@ -60,15 +64,25 @@ class TravelClass(str, Enum):
     so they pass straight to the provider and into query strings unchanged.
     Member names avoid leading digits (not legal Python identifiers)."""
 
-    SL = "SL"              # Sleeper
-    AC3 = "3A"             # AC 3-tier
-    AC3_ECONOMY = "3E"     # AC 3-tier Economy
-    AC2 = "2A"             # AC 2-tier
-    AC1 = "1A"             # AC First Class
-    CC = "CC"              # AC Chair Car
-    EXEC_CHAIR = "EC"      # Executive Chair Car
+    SL = "SL"  # Sleeper
+    AC3 = "3A"  # AC 3-tier
+    AC3_ECONOMY = "3E"  # AC 3-tier Economy
+    AC2 = "2A"  # AC 2-tier
+    AC1 = "1A"  # AC First Class
+    CC = "CC"  # AC Chair Car
+    EXEC_CHAIR = "EC"  # Executive Chair Car
     SECOND_SITTING = "2S"  # Second Sitting
-    FIRST_CLASS = "FC"     # First Class (non-AC)
+    FIRST_CLASS = "FC"  # First Class (non-AC)
+
+
+class RecommendationNoteCode(IntEnum):
+    QUOTA_TATKAL = 1
+    QUOTA_LADIES = 2
+    QUOTA_SENIOR = 3
+    BOARDING_CHANGE = 4
+    EXTRA_FARE = 5
+    ALIGHT_CHANGE = 6
+    MISSING_PREDICTION = 7
 
 
 class ParsedAvailability(BaseModel):
@@ -77,8 +91,7 @@ class ParsedAvailability(BaseModel):
     quota: Quota | None = None
     seats: int | None = None
     # For RAC strings the same two slots hold the RAC positions.
-    series_wl: int | None = None   # first number: booking-time serial position
-    current_wl: int | None = None  # second number: current queue position — drives ranking
+    current_wl: int | None = None  # current queue position — drives ranking
 
     @property
     def label(self) -> str:
@@ -98,7 +111,9 @@ class RawClassOffer(BaseModel):
     travel_class: TravelClass
     raw_availability: str
     fare: int | None = None
-    prediction_pct: int | None = None  # confirmtkt predictionPercentage; 0 is real, None = absent
+    prediction_pct: int | None = (
+        None  # confirmtkt predictionPercentage; 0 is real, None = absent
+    )
 
 
 class RawTrainBetween(BaseModel):
@@ -122,7 +137,7 @@ class RawTrainBetween(BaseModel):
 class ClassAvailability(BaseModel):
     travel_class: TravelClass
     availability: ParsedAvailability
-    probability: float | None  # None when confirmtkt gives no estimate for this leg
+    probability: float  # -1 when confirmtkt gives no estimate for this leg
     fare: int | None = None  # None when unpriced/unavailable (0 -> None)
 
 
@@ -133,14 +148,14 @@ class TrainBetween(BaseModel):
     from_name: str
     to_code: str
     to_name: str
-    departure_time: str   # "HH:MM"
-    arrival_time: str     # "HH:MM"
+    departure_time: str  # "HH:MM"
+    arrival_time: str  # "HH:MM"
     duration_min: int | None = None
-    running_days: str     # "1111111" (Mon→Sun)
+    running_days: str  # "1111111" (Mon→Sun)
     has_pantry: bool = False
     distance_km: int | None = None
     general: list[ClassAvailability]
-    tatkal: list[ClassAvailability]   # often [] for distant dates (Tatkal window)
+    tatkal: list[ClassAvailability]  # often [] for distant dates (Tatkal window)
     allowed_quotas: list[str] = []
 
 
@@ -154,6 +169,7 @@ class TrainsBetweenResponse(BaseModel):
 class TrainQuotaClasses(BaseModel):
     """One train's per-class availability under a single quota. Carries the card's
     disambiguators — train_number is NOT unique within a result (enableNearby)."""
+
     train_number: str
     from_code: str
     departure_time: str
@@ -182,26 +198,25 @@ class Recommendation(BaseModel):
     book_to: str
     board_at: str
     alight_at: str
-    action: str
     availability: ParsedAvailability
-    probability: float | None  # None when confirmtkt gives no estimate (ranked last, flagged)
-    score: float | None        # None mirrors a None probability
-    booked_distance_km: int
+    probability: float  # -1 when confirmtkt gives no estimate (ranked last, flagged)
     extra_km: int
     fare: int | None  # None when the upstream did not price this class on this leg
     extra_fare: int | None  # difference vs the direct fare; None if either is unknown
-    requires_boarding_change: bool
-    notes: list[str]
+    notes: list[
+        RecommendationNoteCode
+    ]  # semantic note codes; frontend renders the copy
 
 
 class SwitchAlternative(BaseModel):
     """A different (class, quota) cell whose confirmation chance is strictly
     better than the searched cell — surfaced so the user can switch class, quota,
     or both. Spans the full (class × quota) grid, all from cached pair responses."""
+
     travel_class: TravelClass
     quota: BookingQuota
     availability: ParsedAvailability
-    probability: float | None  # always set in practice; widened for consistency
+    probability: float  # always set in practice; -1 = no estimate
     fare: int | None = None
     fare_delta: int | None = None  # vs the searched (class, quota) direct-leg fare
 
@@ -214,7 +229,9 @@ class RecommendationResponse(BaseModel):
     quota: BookingQuota  # echoes the searched booking quota
     user_leg: UserLeg
     pairs_evaluated: int
-    pairs_skipped: int = 0  # covering pairs dropped because the upstream failed for them
+    pairs_skipped: int = (
+        0  # covering pairs dropped because the upstream failed for them
+    )
     recommendations: list[Recommendation]
     # Other (class, quota) cells with a better confirmation chance for the same
     # leg; empty when the searched cell is already the best available.

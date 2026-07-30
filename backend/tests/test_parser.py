@@ -12,6 +12,8 @@ from app.schemas import Quota
         ("AVAILABLE-0044", S.AVAILABLE, None, 44, None, None),
         ("AVAILABLE 10", S.AVAILABLE, None, 10, None, None),
         ("AVL 44", S.AVAILABLE, None, 44, None, None),
+        ("CURR_AVL 50", S.AVAILABLE, None, 50, None, None),
+        ("CURR_AVL 48", S.AVAILABLE, None, 48, None, None),
         ("AVAILABLE", S.AVAILABLE, None, None, None, None),
         # Zero seats: quota exists but nothing bookable — never recommend
         ("AVAILABLE-0000", S.NOT_BOOKABLE, None, None, None, None),

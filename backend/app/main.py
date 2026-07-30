@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -15,6 +16,8 @@ async def lifespan(app: FastAPI):
     # Close the live provider's shared httpx.AsyncClient on shutdown.
     await close_provider()
 
+
+logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(
     title="FindMeASeat API",

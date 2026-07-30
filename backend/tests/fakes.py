@@ -3,6 +3,7 @@ so the application itself has no fake/demo data path — the only runtime data
 source is the live IRCTC provider. A deterministic fake keeps tests fast and
 network-free.
 """
+
 import datetime as dt
 import math
 import random
@@ -24,6 +25,7 @@ TATKAL_WINDOW_DAYS = 1
 
 def tatkal_open(journey_date: dt.date) -> bool:
     return (journey_date - booking_day_today()).days <= TATKAL_WINDOW_DAYS
+
 
 DEMO_TRAIN = TrainRoute(
     train_number="12345",
@@ -95,7 +97,9 @@ class FakeRailDataProvider:
         base = calculate_fare(abs(km[destination] - km[source]))
         # Tatkal carries a premium; closed (distant-date) cells aren't priced.
         if quota is BookingQuota.TATKAL:
-            return None if not tatkal_open(journey_date) else 5 * math.ceil(base * 1.3 / 5)
+            return (
+                None if not tatkal_open(journey_date) else 5 * math.ceil(base * 1.3 / 5)
+            )
         return base
 
     async def get_seat_status(
@@ -119,7 +123,11 @@ class FakeRailDataProvider:
         )
         if i == 0:
             quota, p_available = "GNWL", 0.40
-        elif j == len(codes) - 1 or source in REMOTE_LOCATIONS or destination in REMOTE_LOCATIONS:
+        elif (
+            j == len(codes) - 1
+            or source in REMOTE_LOCATIONS
+            or destination in REMOTE_LOCATIONS
+        ):
             quota, p_available = "RLWL", 0.15
         else:
             quota, p_available = "PQWL", 0.10
@@ -132,14 +140,25 @@ class FakeRailDataProvider:
             return rng.choice([f"AVAILABLE-{seats:04d}", f"AVAILABLE {seats}"])
         series = rng.randint(2, 40)
         current = rng.randint(1, series)
-        return rng.choice([f"{quota}{series}/WL{current}", f"{quota} {series}/WL {current}"])
+        return rng.choice(
+            [f"{quota}{series}/WL{current}", f"{quota} {series}/WL {current}"]
+        )
 
     # Fare multipliers per class for the synthetic options.
     _CLASS_FARE_MULT = {"SL": 1.0, "3A": 2.6, "2A": 3.8}
 
     # Prediction scale per class: AC clears slower than Sleeper at equal waitlist.
-    _CLASS_PRED_SCALE = {"SL": 1.0, "2S": 1.0, "3E": 0.85, "3A": 0.82, "CC": 0.8,
-                         "2A": 0.68, "FC": 0.6, "EC": 0.6, "1A": 0.5}
+    _CLASS_PRED_SCALE = {
+        "SL": 1.0,
+        "2S": 1.0,
+        "3E": 0.85,
+        "3A": 0.82,
+        "CC": 0.8,
+        "2A": 0.68,
+        "FC": 0.6,
+        "EC": 0.6,
+        "1A": 0.5,
+    }
 
     async def get_class_options(
         self,
@@ -148,19 +167,11 @@ class FakeRailDataProvider:
         destination: str,
         journey_date: dt.date,
         quota: BookingQuota = BookingQuota.GENERAL,
-    ) -> list[tuple[str, str, int | None]]:
+    ) -> list[str]:
         # A distant-date Tatkal window offers no classes at all.
         if quota is BookingQuota.TATKAL and not tatkal_open(journey_date):
             return []
-        km = {s.code: s.distance_km for s in TRAINS[train_number].stations}
-        base = calculate_fare(abs(km[destination] - km[source]))
-        out: list[tuple[str, str, int | None]] = []
-        for code, mult in self._CLASS_FARE_MULT.items():
-            status = await self.get_seat_status(
-                train_number, source, destination, journey_date, TravelClass(code), quota
-            )
-            out.append((code, status, int(base * mult)))
-        return out
+        return list(self._CLASS_FARE_MULT)
 
     async def get_seat_prediction(
         self,
@@ -172,11 +183,14 @@ class FakeRailDataProvider:
         quota: BookingQuota = BookingQuota.GENERAL,
     ) -> int | None:
         from app.core.parser import parse_availability
+
         status = await self.get_seat_status(
             train_number, source, destination, journey_date, travel_class, quota
         )
         if parse_availability(status).status is not AvailabilityStatus.WAITLIST:
-            return None  # only waitlists carry a graded estimate; priors handle the rest
+            return (
+                None  # only waitlists carry a graded estimate; priors handle the rest
+            )
         # Base is class-INDEPENDENT (no travel_class in the seed) so scaling alone
         # orders the classes; a deterministic slice returns None to exercise that path.
         rng = random.Random(
@@ -206,11 +220,21 @@ class FakeRailDataProvider:
             RawClassOffer(
                 travel_class=TravelClass(code),
                 raw_availability=await self.get_seat_status(
-                    route.train_number, source, destination, journey_date, TravelClass(code), quota
+                    route.train_number,
+                    source,
+                    destination,
+                    journey_date,
+                    TravelClass(code),
+                    quota,
                 ),
                 fare=int((base or 0) * mult),
                 prediction_pct=await self.get_seat_prediction(
-                    route.train_number, source, destination, journey_date, TravelClass(code), quota
+                    route.train_number,
+                    source,
+                    destination,
+                    journey_date,
+                    TravelClass(code),
+                    quota,
                 ),
             )
             for code, mult in self._CLASS_FARE_MULT.items()
@@ -227,16 +251,26 @@ class FakeRailDataProvider:
         by_code = {s.code: s for s in route.stations}
         if source not in by_code or destination not in by_code:
             return []
-        base = await self.get_fare(route.train_number, source, destination, journey_date, TravelClass.SL)
+        base = await self.get_fare(
+            route.train_number, source, destination, journey_date, TravelClass.SL
+        )
         offers = [
             RawClassOffer(
                 travel_class=TravelClass(code),
                 raw_availability=await self.get_seat_status(
-                    route.train_number, source, destination, journey_date, TravelClass(code)
+                    route.train_number,
+                    source,
+                    destination,
+                    journey_date,
+                    TravelClass(code),
                 ),
                 fare=int(base * mult),
                 prediction_pct=await self.get_seat_prediction(
-                    route.train_number, source, destination, journey_date, TravelClass(code)
+                    route.train_number,
+                    source,
+                    destination,
+                    journey_date,
+                    TravelClass(code),
                 ),
             )
             for code, mult in self._CLASS_FARE_MULT.items()
@@ -254,7 +288,9 @@ class FakeRailDataProvider:
                 duration_min=None,
                 running_days="1111111",
                 has_pantry=False,
-                distance_km=abs(by_code[destination].distance_km - by_code[source].distance_km),
+                distance_km=abs(
+                    by_code[destination].distance_km - by_code[source].distance_km
+                ),
                 general_offers=offers,
                 tatkal_offers=[],
             )

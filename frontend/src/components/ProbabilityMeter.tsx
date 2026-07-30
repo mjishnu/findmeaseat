@@ -1,9 +1,9 @@
 interface ProbabilityMeterProps {
-  probability: number | null // 0..1, or null when confirmtkt has no estimate
+  probability: number // 0..1, or -1 when confirmtkt has no estimate
 }
 
 export function ProbabilityMeter({ probability }: ProbabilityMeterProps) {
-  if (probability === null) {
+  if (probability < 0) {
     return (
       <div className="flex items-center gap-2">
         <div className="h-1.5 flex-1 rounded-full bg-rail-200/60" />

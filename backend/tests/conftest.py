@@ -1,5 +1,6 @@
 """Shared test doubles. StubProvider satisfies RailDataProvider structurally
 and lets each test script exact availability strings per station pair."""
+
 import datetime as dt
 
 from app.schemas import BookingQuota, TrainRoute, TravelClass
@@ -36,19 +37,13 @@ class StubProvider:
         destination: str,
         journey_date: dt.date,
         quota: BookingQuota = BookingQuota.GENERAL,
-    ) -> list[tuple[str, str, int | None]]:
+    ) -> list[str]:
         options = (
             self._tatkal_class_options
             if quota is BookingQuota.TATKAL
             else self._class_options
         )
-        out: list[tuple[str, str, int | None]] = []
-        for code, fare in options.items():
-            status = await self.get_seat_status(
-                train_number, source, destination, journey_date, TravelClass(code), quota
-            )
-            out.append((code, status, fare))
-        return out
+        return list(options)
 
     async def get_seat_status(
         self,
