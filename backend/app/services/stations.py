@@ -6,8 +6,11 @@ best first: exact code, code prefix, name prefix, city prefix, name substring,
 city substring. Keeping name ahead of city stops every station in a big city
 (all sharing that city name) from crowding out the station actually named for it.
 """
+
 import json
 from pathlib import Path
+
+from rapidfuzz import fuzz
 
 from app.schemas import Station
 
@@ -30,11 +33,13 @@ class StationDirectory:
         code_q = q.upper()
         text_q = q.lower()
 
-        ranked: list[tuple[int, str, Station]] = []
+        ranked: list[tuple[int, float, str, Station]] = []
+
         for s in self._stations:
             code = s.code.upper()
             name = s.name.lower()
             city = s.city.lower()
+            score = 0.0
             if code == code_q:
                 tier = 0
             elif code.startswith(code_q):
@@ -48,8 +53,11 @@ class StationDirectory:
             elif text_q in city:
                 tier = 5
             else:
-                continue
-            ranked.append((tier, s.name, s))
+                score = fuzz.WRatio(text_q, f"{name} {city}")
+                if score < 65:
+                    continue
+                tier = 6
+            ranked.append((tier, -score, s.name, s))
 
-        ranked.sort(key=lambda r: (r[0], r[1]))
-        return [s for _tier, _name, s in ranked[:limit]]
+        ranked.sort(key=lambda r: (r[0], r[1], r[2]))
+        return [s for *_, s in ranked[:limit]]

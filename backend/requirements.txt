@@ -1,3 +1,4 @@
 fastapi[standard]==0.136.3
 httpx==0.28.1  # async HTTP client for the live IRCTC provider
 tzdata>=2025.2  # IANA timezone data for zoneinfo on Windows
+rapidfuzz>=3.9.0
