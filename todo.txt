@@ -1,2 +1,4 @@
 todo
 
+when clicking find me a seat in seatfinder (front-end) update the browser url as well
+if there is a cache for the route then show it imdetatily no need to make frontend call 
