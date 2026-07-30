@@ -183,14 +183,95 @@ async function postRequest<T>(url: string, body: unknown, signal?: AbortSignal):
   return res.json() as Promise<T>
 }
 
+// -- Confirmtkt response pre-parser ------------------------------------------
+// The backend only reads a small subset of fields from each train dict.
+// Strip everything else client-side to shrink the payload sent to /process.
+
+/** Fields the backend reads from each availability cache entry. */
+const CACHE_ENTRY_KEYS = ['availability', 'availabilityDisplayName', 'fare', 'predictionPercentage'] as const
+
+function stripCacheEntries(cache: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!cache || typeof cache !== 'object') return cache
+  const out: Record<string, unknown> = {}
+  for (const [cls, entry] of Object.entries(cache)) {
+    if (!entry || typeof entry !== 'object') continue
+    const slim: Record<string, unknown> = {}
+    for (const k of CACHE_ENTRY_KEYS) {
+      if (k in (entry as Record<string, unknown>)) slim[k] = (entry as Record<string, unknown>)[k]
+    }
+    out[cls] = slim
+  }
+  return out
+}
+
+/** Fields the backend reads from each train dict (top-level). */
+const TRAIN_KEEP_KEYS = [
+  'trainNumber', 'trainName',
+  'fromStnCode', 'fromStnName', 'toStnCode', 'toStnName',
+  'departureTime', 'arrivalTime', 'duration',
+  'runningDays', 'hasPantry', 'distance',
+  'avlClassesSorted', 'allowedQuotas',
+] as const
+
+const CACHE_KEYS = ['availabilityCache', 'availabilityCacheTatkal', 'availabilityCacheForQuota'] as const
+
+function stripTrain(train: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const k of TRAIN_KEEP_KEYS) {
+    if (k in train) out[k] = train[k]
+  }
+  for (const k of CACHE_KEYS) {
+    out[k] = stripCacheEntries(train[k] as Record<string, unknown> | undefined) ?? {}
+  }
+  return out
+}
+
+/**
+ * Pre-parse a confirmtkt search response: keep only the fields the backend
+ * actually uses from each train in data.trainList.  Returns the slimmed JSON
+ * string, or the original body unchanged if parsing fails.
+ *
+ * When `filterTrainNumber` is provided (seat-finder flow), only the matching
+ * train is kept — the rest are dropped entirely.
+ */
+function preParseConfirmtktResponse(body: string, filterTrainNumber?: string): string {
+  try {
+    const payload = JSON.parse(body)
+    const data = payload?.data
+    if (!data || !Array.isArray(data.trainList)) return body
+    let trains: Record<string, unknown>[] = data.trainList
+    // Seat-finder: keep only the train we care about
+    if (filterTrainNumber) {
+      trains = trains.filter((t) => String(t.trainNumber) === filterTrainNumber)
+    }
+    data.trainList = trains.map((t: Record<string, unknown>) => stripTrain(t))
+    // Also drop bulky top-level keys the backend never reads
+    delete data.nearbyTrains
+    delete data.nearbyDates
+    delete data.alternateTravelModes
+    delete data.alternateTravelModesMiddle
+    return JSON.stringify(payload)
+  } catch {
+    return body // parsing failed — send the original
+  }
+}
+
+const CONFIRMTKT_HOST = 'cttrainsapi.confirmtkt.com'
+
 async function fetchWithRetry(
   f: FetchDescriptor, signal?: AbortSignal, retries = 3,
+  filterTrainNumber?: string,
 ): Promise<FetchResult> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       if (attempt > 0) await new Promise(r => setTimeout(r, 500 * attempt))
       const res = await fetch(f.url, { headers: f.headers, signal })
-      return { fetch_id: f.fetch_id, status: res.status, body: await res.text() }
+      let body = await res.text()
+      // Pre-parse confirmtkt responses to reduce payload size
+      if (f.url.includes(CONFIRMTKT_HOST)) {
+        body = preParseConfirmtktResponse(body, filterTrainNumber)
+      }
+      return { fetch_id: f.fetch_id, status: res.status, body }
     } catch {
       if (attempt === retries) break
     }
@@ -206,6 +287,7 @@ function isContinue(r: unknown): r is ManifestResponse {
 
 async function executeManifest<T>(
   manifestUrl: string, processUrl: string, body: unknown, signal?: AbortSignal,
+  filterTrainNumber?: string,
 ): Promise<T> {
   let response: unknown = await postRequest(manifestUrl, body, signal)
 
@@ -214,7 +296,7 @@ async function executeManifest<T>(
   while (true) {
     const manifest = response as ManifestResponse
     const results = await Promise.all(
-      manifest.fetches.map(f => fetchWithRetry(f, signal))
+      manifest.fetches.map(f => fetchWithRetry(f, signal, 3, filterTrainNumber))
     )
     response = await postRequest(processUrl,
       { manifest_id: manifest.manifest_id, results }, signal)
@@ -247,7 +329,7 @@ export function findOptimalRoute(
     date: query.date,
     travel_class: query.travelClass,
     quota: query.quota,
-  }, signal)
+  }, signal, query.trainNumber)
 }
 
 // --- Train search (between stations) -----------------------------------------
