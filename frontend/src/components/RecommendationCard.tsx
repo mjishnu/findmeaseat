@@ -1,5 +1,4 @@
 import {
-  AvailabilityStatus,
   RECOMMENDATION_NOTE_CODE,
   type BookingQuota,
   type Recommendation,
@@ -12,21 +11,6 @@ interface RecommendationCardProps {
   rec: Recommendation
   quota: BookingQuota
   highlight?: boolean
-}
-
-function formatAvailabilityLabel(rec: Recommendation): string {
-  switch (rec.availability.status) {
-    case AvailabilityStatus.AVAILABLE:
-      return rec.availability.seats ? `AVAILABLE (${rec.availability.seats} seats)` : 'AVAILABLE'
-    case AvailabilityStatus.RAC:
-      return rec.availability.current_wl ? `RAC ${rec.availability.current_wl}` : 'RAC'
-    case AvailabilityStatus.WAITLIST:
-      return rec.availability.quota && rec.availability.current_wl
-        ? `${rec.availability.quota} ${rec.availability.current_wl}`
-        : rec.availability.raw
-    default:
-      return rec.availability.raw
-  }
 }
 
 function renderNote(note: RecommendationNoteCode, rec: Recommendation): string {
@@ -62,7 +46,7 @@ function buildAction(rec: Recommendation, quota: string): string {
   } else if (quota === 'SS') {
     action += ' in Senior Citizen quota'
   }
-  action += `. Status: ${formatAvailabilityLabel(rec)}`
+  action += `. Status: ${rec.availability.raw}`
   return action
 }
 

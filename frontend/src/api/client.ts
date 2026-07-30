@@ -67,9 +67,6 @@ export type AvailabilityStatus = (typeof AvailabilityStatus)[keyof typeof Availa
 export interface ParsedAvailability {
   raw: string
   status: AvailabilityStatus
-  quota: string | null
-  seats: number | null
-  current_wl: number | null
 }
 
 export interface Recommendation {
@@ -147,8 +144,87 @@ async function request<T>(url: string, signal?: AbortSignal): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export interface FetchDescriptor {
+  url: string
+  headers: Record<string, string>
+  fetch_id: string
+}
+
+export interface ManifestResponse {
+  manifest_id: string
+  fetches: FetchDescriptor[]
+}
+
+export interface FetchResult {
+  fetch_id: string
+  status: number
+  body: string
+}
+
+async function postRequest<T>(url: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const bodyString = JSON.stringify(body)
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: bodyString,
+    signal,
+  })
+  if (!res.ok) {
+    let detail = `Request failed (${res.status})`
+    try {
+      const err: unknown = await res.json()
+      if (typeof err === 'object' && err !== null && 'detail' in err && typeof err.detail === 'string')
+        detail = err.detail
+    } catch { /* non-JSON error body */ }
+    throw new ApiError(res.status, detail)
+  }
+  return res.json() as Promise<T>
+}
+
+async function fetchWithRetry(
+  f: FetchDescriptor, signal?: AbortSignal, retries = 3,
+): Promise<FetchResult> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 500 * attempt))
+      const res = await fetch(f.url, { headers: f.headers, signal })
+      return { fetch_id: f.fetch_id, status: res.status, body: await res.text() }
+    } catch {
+      if (attempt === retries) break
+    }
+  }
+  return { fetch_id: f.fetch_id, status: 0, body: '' }
+}
+
+function isContinue(r: unknown): r is ManifestResponse {
+  return typeof r === 'object' && r !== null && 'fetches' in r &&
+    Array.isArray((r as Record<string, unknown>).fetches) &&
+    ((r as Record<string, unknown>).fetches as unknown[]).length > 0
+}
+
+async function executeManifest<T>(
+  manifestUrl: string, processUrl: string, body: unknown, signal?: AbortSignal,
+): Promise<T> {
+  let response: unknown = await postRequest(manifestUrl, body, signal)
+
+  if (!isContinue(response)) return response as T
+
+  while (true) {
+    const manifest = response as ManifestResponse
+    const results = await Promise.all(
+      manifest.fetches.map(f => fetchWithRetry(f, signal))
+    )
+    response = await postRequest(processUrl,
+      { manifest_id: manifest.manifest_id, results }, signal)
+    if (!isContinue(response)) return response as T
+  }
+}
+
 export function getTrainRoute(trainNumber: string, signal?: AbortSignal): Promise<TrainRoute> {
-  return request<TrainRoute>(`/api/trains/${encodeURIComponent(trainNumber)}`, signal)
+  return executeManifest('/api/route/manifest', '/api/route/process',
+    { train_number: trainNumber }, signal)
 }
 
 export interface SearchQuery {
@@ -164,15 +240,14 @@ export function findOptimalRoute(
   query: SearchQuery,
   signal?: AbortSignal,
 ): Promise<RecommendationResponse> {
-  const params = new URLSearchParams({
+  return executeManifest('/api/seat-finder/manifest', '/api/seat-finder/process', {
     train_number: query.trainNumber,
     user_source: query.source,
     user_destination: query.destination,
     date: query.date,
     travel_class: query.travelClass,
     quota: query.quota,
-  })
-  return request<RecommendationResponse>(`/api/find-optimal-route?${params}`, signal)
+  }, signal)
 }
 
 // --- Train search (between stations) -----------------------------------------
@@ -241,8 +316,8 @@ export function searchTrainsBetween(
   date: string, // YYYY-MM-DD
   signal?: AbortSignal,
 ): Promise<TrainsBetweenResponse> {
-  const params = new URLSearchParams({ source, destination, date })
-  return request<TrainsBetweenResponse>(`/api/trains-between?${params}`, signal)
+  return executeManifest('/api/trains-between/manifest', '/api/trains-between/process',
+    { source, destination, date }, signal)
 }
 
 export function searchTrainsQuotaAvailability(
@@ -252,6 +327,6 @@ export function searchTrainsQuotaAvailability(
   quota: BookingQuota,
   signal?: AbortSignal,
 ): Promise<TrainsQuotaAvailabilityResponse> {
-  const params = new URLSearchParams({ source, destination, date, quota })
-  return request<TrainsQuotaAvailabilityResponse>(`/api/trains-between/quota?${params}`, signal)
+  return executeManifest('/api/trains-between/quota/manifest', '/api/trains-between/quota/process',
+    { source, destination, date, quota }, signal)
 }

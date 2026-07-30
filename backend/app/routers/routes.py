@@ -1,81 +1,492 @@
 import datetime as dt
+import json
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, HTTPException, Query
 
-from app.dependencies import ProviderDep, StationDirectoryDep
-from app.exceptions import TrainNotFoundError
+from app.core import route_cache, segment_cache
+from app.core.dates import validate_journey_date
+from app.core.manifest_store import (
+    RouteManifestEntry,
+    SeatFinderEntry,
+    TrainSearchEntry,
+)
+from app.core.pairs import enumerate_covering_pairs
+from app.dependencies import ManifestStoreDep, StationDirectoryDep
+from app.exceptions import ProviderUnavailableError, TrainNotFoundError
+from app.providers.irctc.client import (
+    build_confirmtkt_descriptor,
+    build_erail_header_descriptor,
+    build_erail_route_descriptor,
+    format_date,
+    parse_erail_header,
+    parse_erail_route,
+)
+from app.providers.irctc.provider import build_quota_rows, build_raw_trains_between
+from app.providers.prefetched.provider import PreFetchedProvider
 from app.schemas import (
     BookingQuota,
-    RecommendationResponse,
+    ManifestResponse,
+    ProcessRequest,
+    QuotaSearchManifestRequest,
+    RouteManifestRequest,
+    SeatFinderManifestRequest,
     Station,
+    StationStop,
+    TrainQuotaClasses,
     TrainRoute,
     TrainsBetweenResponse,
+    TrainSearchManifestRequest,
     TrainsQuotaAvailabilityResponse,
-    TravelClass,
 )
 from app.services.recommendations import RecommendationService
-from app.services.train_search import TrainSearchService
+from app.services.train_search import to_class, to_train_between
 
 router = APIRouter(prefix="/api")
 
+# --- Route Lookup ---
 
-@router.get("/find-optimal-route", response_model=RecommendationResponse)
-async def find_optimal_route(
-    provider: ProviderDep,
-    train_number: Annotated[str, Query(pattern=r"^\d{5}$", description="5-digit train number")],
-    user_source: Annotated[str, Query(min_length=1, max_length=5)],
-    user_destination: Annotated[str, Query(min_length=1, max_length=5)],
-    date: dt.date,  # FastAPI coerces YYYY-MM-DD and 422s on malformed/impossible dates
-    travel_class: TravelClass = TravelClass.SL,  # 422s on an unknown class code
-    quota: BookingQuota = BookingQuota.GENERAL,  # GN | TQ | LD | SS; 422s on an unknown code
-) -> RecommendationResponse:
-    return await RecommendationService(provider).find_optimal_route(
-        train_number, user_source, user_destination, date, travel_class, quota
+
+@router.post("/route/manifest", response_model=ManifestResponse | TrainRoute)
+async def route_manifest(body: RouteManifestRequest, store: ManifestStoreDep):
+    cached = route_cache.get(body.train_number)
+    if cached:
+        return cached
+
+    entry = RouteManifestEntry(train_number=body.train_number)
+    mid = store.put(entry)
+    return ManifestResponse(
+        manifest_id=mid, fetches=[build_erail_header_descriptor(body.train_number)]
     )
 
 
-@router.get("/trains/{train_number}", response_model=TrainRoute)
-async def get_train(
-    provider: ProviderDep,
-    train_number: Annotated[str, Path(pattern=r"^\d{5}$", description="5-digit train number")],
-) -> TrainRoute:
-    """Route lookup for UI dropdowns."""
-    route = await provider.get_route(train_number)
-    if route is None:
-        raise TrainNotFoundError(train_number)
-    return route
+@router.post("/route/process", response_model=ManifestResponse | TrainRoute)
+async def route_process(body: ProcessRequest, store: ManifestStoreDep):
+    entry = store.pop(body.manifest_id)
+    if not isinstance(entry, RouteManifestEntry):
+        raise HTTPException(404, "Manifest expired or unknown")
+
+    if not body.results:
+        raise HTTPException(400, "Missing results")
+    result = body.results[0]
+
+    if entry.phase == "header":
+        parsed = parse_erail_header(result.body)
+        if parsed is None:
+            raise TrainNotFoundError(entry.train_number)
+        train_id, train_no, train_name = parsed
+        entry.phase = "route"
+        entry.train_id = train_id
+        entry.train_no = train_no
+        entry.train_name = train_name
+        mid = store.put(entry)
+        return ManifestResponse(
+            manifest_id=mid, fetches=[build_erail_route_descriptor(train_id)]
+        )
+
+    elif entry.phase == "route":
+        stops = parse_erail_route(result.body)
+        if not stops:
+            raise ProviderUnavailableError(
+                "erail TRAINROUTE returned no parseable stops"
+            )
+        route = TrainRoute(
+            train_number=entry.train_number,
+            train_name=entry.train_name or "",
+            stations=[StationStop(**s) for s in stops],
+        )
+        route_cache.put(entry.train_number, route)
+        return route
 
 
-@router.get("/trains-between", response_model=TrainsBetweenResponse)
-async def trains_between(
-    provider: ProviderDep,
-    source: Annotated[str, Query(min_length=1, max_length=5, description="Source station code")],
-    destination: Annotated[str, Query(min_length=1, max_length=5, description="Destination station code")],
-    date: dt.date,  # FastAPI coerces YYYY-MM-DD and 422s on malformed/impossible dates
-) -> TrainsBetweenResponse:
-    """Every train running source→destination on the date, with per-class
-    availability + fare for both General and Tatkal quotas."""
-    return await TrainSearchService(provider).search(source, destination, date)
+# --- Seat Finder ---
 
 
-@router.get("/trains-between/quota", response_model=TrainsQuotaAvailabilityResponse)
-async def trains_between_quota(
-    provider: ProviderDep,
-    source: Annotated[str, Query(min_length=1, max_length=5, description="Source station code")],
-    destination: Annotated[str, Query(min_length=1, max_length=5, description="Destination station code")],
-    date: dt.date,
-    quota: BookingQuota,  # LD | SS (GN/TQ arrive in /trains-between); 422s on unknown
-) -> TrainsQuotaAvailabilityResponse:
-    """One quota's per-class availability for every train on the leg — the lazy
-    fetch for Ladies/Senior, which aren't in the bundled /trains-between response."""
-    return await TrainSearchService(provider).search_quota(source, destination, date, quota)
+@router.post("/seat-finder/manifest")
+async def seat_finder_manifest(
+    body: SeatFinderManifestRequest, store: ManifestStoreDep
+):
+    validate_journey_date(body.date)
+    source = body.user_source.strip().upper()
+    destination = body.user_destination.strip().upper()
+
+    cached_route = route_cache.get(body.train_number)
+    if cached_route:
+        pairs = enumerate_covering_pairs(cached_route, source, destination)
+        fetch_group = (
+            body.quota.value
+            if body.quota in (BookingQuota.LADIES, BookingQuota.SENIOR)
+            else None
+        )
+        date_str = format_date(body.date)
+        cached_segs: dict[str, list[dict]] = {}
+        fetches = []
+        fetch_id_to_pair = {}
+        for b, a in pairs:
+            fid = f"{b.code}|{a.code}"
+            fetch_id_to_pair[fid] = (b, a)
+            hit = segment_cache.get(b.code, a.code, date_str, fetch_group)
+            if hit is not None:
+                cached_segs[fid] = hit
+            else:
+                fetches.append(
+                    build_confirmtkt_descriptor(
+                        b.code, a.code, body.date, body.quota, fid
+                    )
+                )
+
+        entry = SeatFinderEntry(
+            phase="fetch",
+            route=cached_route,
+            pairs=pairs,
+            fetch_id_to_pair=fetch_id_to_pair,
+            cached_segments=cached_segs or None,
+            train_number=body.train_number,
+            user_source=source,
+            user_destination=destination,
+            journey_date=body.date,
+            travel_class=body.travel_class,
+            quota=body.quota,
+        )
+
+        if not fetches:
+            provider = PreFetchedProvider(entry, cached_segs)
+            return await RecommendationService(provider).find_optimal_route(
+                cached_route.train_number,
+                source,
+                destination,
+                body.date,
+                body.travel_class,
+                body.quota,
+            )
+
+        mid = store.put(entry)
+        return ManifestResponse(manifest_id=mid, fetches=fetches)
+
+    entry = SeatFinderEntry(
+        phase="header",
+        train_number=body.train_number,
+        user_source=source,
+        user_destination=destination,
+        journey_date=body.date,
+        travel_class=body.travel_class,
+        quota=body.quota,
+    )
+    mid = store.put(entry)
+    return ManifestResponse(
+        manifest_id=mid, fetches=[build_erail_header_descriptor(body.train_number)]
+    )
+
+
+@router.post("/seat-finder/process")
+async def seat_finder_process(body: ProcessRequest, store: ManifestStoreDep):
+    entry = store.pop(body.manifest_id)
+    if not isinstance(entry, SeatFinderEntry):
+        raise HTTPException(404, "Manifest expired or unknown")
+
+    if entry.phase == "header":
+        if not body.results:
+            raise HTTPException(400, "Missing results")
+        parsed = parse_erail_header(body.results[0].body)
+        if parsed is None:
+            raise TrainNotFoundError(entry.train_number)
+        entry.train_id, entry.train_no, entry.train_name = parsed
+        entry.phase = "route"
+        mid = store.put(entry)
+        if entry.train_id is None:
+            raise HTTPException(500, "Parsed train_id is None")
+        return ManifestResponse(
+            manifest_id=mid, fetches=[build_erail_route_descriptor(entry.train_id)]
+        )
+
+    elif entry.phase == "route":
+        if not body.results:
+            raise HTTPException(400, "Missing results")
+        stops = parse_erail_route(body.results[0].body)
+        if not stops:
+            raise ProviderUnavailableError(
+                "erail TRAINROUTE returned no parseable stops"
+            )
+        route = TrainRoute(
+            train_number=entry.train_number,
+            train_name=entry.train_name or "",
+            stations=[StationStop(**s) for s in stops],
+        )
+        route_cache.put(entry.train_number, route)
+        pairs = enumerate_covering_pairs(
+            route, entry.user_source, entry.user_destination
+        )
+        fetch_group = (
+            entry.quota.value
+            if entry.quota in (BookingQuota.LADIES, BookingQuota.SENIOR)
+            else None
+        )
+        date_str = format_date(entry.journey_date)
+
+        cached_segs: dict[str, list[dict]] = {}
+        fetches = []
+        fetch_id_to_pair = {}
+        for b, a in pairs:
+            fid = f"{b.code}|{a.code}"
+            fetch_id_to_pair[fid] = (b, a)
+            hit = segment_cache.get(b.code, a.code, date_str, fetch_group)
+            if hit is not None:
+                cached_segs[fid] = hit
+            else:
+                fetches.append(
+                    build_confirmtkt_descriptor(
+                        b.code, a.code, entry.journey_date, entry.quota, fid
+                    )
+                )
+
+        entry.route = route
+        entry.pairs = pairs
+        entry.fetch_id_to_pair = fetch_id_to_pair
+        entry.cached_segments = cached_segs or None
+
+        if not fetches:
+            provider = PreFetchedProvider(entry, cached_segs)
+            return await RecommendationService(provider).find_optimal_route(
+                route.train_number,
+                entry.user_source,
+                entry.user_destination,
+                entry.journey_date,
+                entry.travel_class,
+                entry.quota,
+            )
+
+        entry.phase = "fetch"
+        mid = store.put(entry)
+        return ManifestResponse(manifest_id=mid, fetches=fetches)
+
+    elif entry.phase == "fetch":
+        if entry.fetch_id_to_pair is None or entry.route is None:
+            raise HTTPException(500, "Missing pairs or route in entry")
+
+        submitted_ids = [r.fetch_id for r in body.results]
+        if len(submitted_ids) != len(set(submitted_ids)):
+            raise HTTPException(400, "Duplicate fetch_id")
+        if not set(submitted_ids) <= set(entry.fetch_id_to_pair.keys()):
+            raise HTTPException(400, "Unknown fetch_id")
+
+        fetch_group = (
+            entry.quota.value
+            if entry.quota in (BookingQuota.LADIES, BookingQuota.SENIOR)
+            else None
+        )
+        date_str = format_date(entry.journey_date)
+        parsed_segments: dict[str, list[dict]] = {}
+
+        for r in body.results:
+            train_list: list[dict] = []
+            if r.status == 200 and r.body:
+                try:
+                    payload = json.loads(r.body)
+                    data = payload.get("data") if isinstance(payload, dict) else None
+                    train_list = (
+                        (data or {}).get("trainList", [])
+                        if isinstance(data, dict)
+                        else []
+                    )
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+            parsed_segments[r.fetch_id] = train_list
+            if train_list:
+                board, alight = r.fetch_id.split("|")
+                segment_cache.put(board, alight, date_str, fetch_group, train_list)
+
+        if entry.cached_segments:
+            parsed_segments.update(entry.cached_segments)
+
+        provider = PreFetchedProvider(entry, parsed_segments)
+        return await RecommendationService(provider).find_optimal_route(
+            entry.route.train_number,
+            entry.user_source,
+            entry.user_destination,
+            entry.journey_date,
+            entry.travel_class,
+            entry.quota,
+        )
+
+
+# --- Train Search ---
+
+
+@router.post("/trains-between/manifest")
+async def trains_between_manifest(
+    body: TrainSearchManifestRequest, store: ManifestStoreDep
+):
+    validate_journey_date(body.date)
+    source = body.source.strip().upper()
+    destination = body.destination.strip().upper()
+    date_str = format_date(body.date)
+
+    cached = segment_cache.get(source, destination, date_str, None)
+    if cached is not None:
+        raw_trains = build_raw_trains_between(cached)
+        return TrainsBetweenResponse(
+            source=source,
+            destination=destination,
+            journey_date=body.date,
+            trains=[to_train_between(t) for t in raw_trains],
+        )
+
+    entry = TrainSearchEntry(
+        source=source, destination=destination, journey_date=body.date, quota=None
+    )
+    mid = store.put(entry)
+    return ManifestResponse(
+        manifest_id=mid,
+        fetches=[
+            build_confirmtkt_descriptor(
+                source, destination, body.date, BookingQuota.GENERAL, "search"
+            )
+        ],
+    )
+
+
+@router.post("/trains-between/process")
+async def trains_between_process(body: ProcessRequest, store: ManifestStoreDep):
+    entry = store.pop(body.manifest_id)
+    if not isinstance(entry, TrainSearchEntry):
+        raise HTTPException(404, "Manifest expired or unknown")
+
+    if not body.results:
+        raise HTTPException(400, "Missing results")
+
+    r = body.results[0]
+    train_list: list[dict] = []
+    if r.status == 200 and r.body:
+        try:
+            payload = json.loads(r.body)
+            data = payload.get("data") if isinstance(payload, dict) else None
+            train_list = (
+                (data or {}).get("trainList", []) if isinstance(data, dict) else []
+            )
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    if train_list:
+        segment_cache.put(
+            entry.source,
+            entry.destination,
+            format_date(entry.journey_date),
+            None,
+            train_list,
+        )
+
+    raw_trains = build_raw_trains_between(train_list)
+    return TrainsBetweenResponse(
+        source=entry.source,
+        destination=entry.destination,
+        journey_date=entry.journey_date,
+        trains=[to_train_between(t) for t in raw_trains],
+    )
+
+
+# --- Quota Search ---
+
+
+@router.post("/trains-between/quota/manifest")
+async def trains_between_quota_manifest(
+    body: QuotaSearchManifestRequest, store: ManifestStoreDep
+):
+    validate_journey_date(body.date)
+    source = body.source.strip().upper()
+    destination = body.destination.strip().upper()
+    date_str = format_date(body.date)
+    fetch_group = body.quota.value
+
+    cached = segment_cache.get(source, destination, date_str, fetch_group)
+    if cached is not None:
+        rows = build_quota_rows(cached)
+        return TrainsQuotaAvailabilityResponse(
+            source=source,
+            destination=destination,
+            journey_date=body.date,
+            quota=body.quota,
+            trains=[
+                TrainQuotaClasses(
+                    train_number=tn,
+                    from_code=fc,
+                    departure_time=dpt,
+                    classes=[to_class(o) for o in ofs],
+                )
+                for tn, fc, dpt, ofs in rows
+            ],
+        )
+
+    entry = TrainSearchEntry(
+        source=source, destination=destination, journey_date=body.date, quota=body.quota
+    )
+    mid = store.put(entry)
+    return ManifestResponse(
+        manifest_id=mid,
+        fetches=[
+            build_confirmtkt_descriptor(
+                source, destination, body.date, body.quota, "search_quota"
+            )
+        ],
+    )
+
+
+@router.post("/trains-between/quota/process")
+async def trains_between_quota_process(body: ProcessRequest, store: ManifestStoreDep):
+    entry = store.pop(body.manifest_id)
+    if not isinstance(entry, TrainSearchEntry) or entry.quota is None:
+        raise HTTPException(404, "Manifest expired or unknown")
+
+    if not body.results:
+        raise HTTPException(400, "Missing results")
+
+    r = body.results[0]
+    train_list: list[dict] = []
+    if r.status == 200 and r.body:
+        try:
+            payload = json.loads(r.body)
+            data = payload.get("data") if isinstance(payload, dict) else None
+            train_list = (
+                (data or {}).get("trainList", []) if isinstance(data, dict) else []
+            )
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    if train_list:
+        segment_cache.put(
+            entry.source,
+            entry.destination,
+            format_date(entry.journey_date),
+            entry.quota.value,
+            train_list,
+        )
+
+    rows = build_quota_rows(train_list)
+    return TrainsQuotaAvailabilityResponse(
+        source=entry.source,
+        destination=entry.destination,
+        journey_date=entry.journey_date,
+        quota=entry.quota,
+        trains=[
+            TrainQuotaClasses(
+                train_number=tn,
+                from_code=fc,
+                departure_time=dpt,
+                classes=[to_class(o) for o in ofs],
+            )
+            for tn, fc, dpt, ofs in rows
+        ],
+    )
+
+
+# --- Stations ---
 
 
 @router.get("/stations", response_model=list[Station])
 def search_stations(
     directory: StationDirectoryDep,
-    q: Annotated[str, Query(min_length=1, max_length=40, description="Name, city, or code")],
+    q: Annotated[
+        str, Query(min_length=1, max_length=40, description="Name, city, or code")
+    ],
     limit: Annotated[int, Query(ge=1, le=20)] = 8,
 ) -> list[Station]:
     """Autocomplete suggestions from the bundled station directory."""
