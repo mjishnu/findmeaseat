@@ -165,10 +165,19 @@ async function postRequest<T>(url: string, body: unknown, signal?: AbortSignal):
   const bodyString = JSON.stringify(body)
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
 
+  let reqBody: BodyInit = bodyString
+  try {
+    const stream = new Blob([bodyString]).stream().pipeThrough(new CompressionStream('gzip'))
+    reqBody = await new Response(stream).arrayBuffer()
+    headers['Content-Encoding'] = 'gzip'
+  } catch (e) {
+    // Fallback if CompressionStream is not available
+  }
+
   const res = await fetch(url, {
     method: 'POST',
     headers,
-    body: bodyString,
+    body: reqBody,
     signal,
   })
   if (!res.ok) {
@@ -298,8 +307,9 @@ async function executeManifest<T>(
     const results = await Promise.all(
       manifest.fetches.map(f => fetchWithRetry(f, signal, 3, filterTrainNumber))
     )
+    const validResults = results.filter(r => !r.body.includes('"trainList":[]'))
     response = await postRequest(processUrl,
-      { manifest_id: manifest.manifest_id, results }, signal)
+      { manifest_id: manifest.manifest_id, results: validResults }, signal)
     if (!isContinue(response)) return response as T
   }
 }

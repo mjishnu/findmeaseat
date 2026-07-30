@@ -1,8 +1,10 @@
-import datetime as dt
+import gzip
 import json
+from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi.routing import APIRoute
 
 from app.core import route_cache, segment_cache
 from app.core.dates import validate_journey_date
@@ -42,7 +44,29 @@ from app.schemas import (
 from app.services.recommendations import RecommendationService
 from app.services.train_search import to_class, to_train_between
 
-router = APIRouter(prefix="/api")
+
+class GzipRoute(APIRoute):
+    def get_route_handler(self) -> Callable:
+        original_route_handler = super().get_route_handler()
+
+        async def custom_route_handler(request: Request) -> Response:
+            if "gzip" in request.headers.getlist("Content-Encoding"):
+                body = await request.body()
+                try:
+                    decompressed_body = gzip.decompress(body)
+                except gzip.BadGzipFile:
+                    raise HTTPException(status_code=400, detail="Invalid gzip payload")
+
+                async def receive():
+                    return {"type": "http.request", "body": decompressed_body}
+
+                request = Request(request.scope, receive)
+            return await original_route_handler(request)
+
+        return custom_route_handler
+
+
+router = APIRouter(prefix="/api", route_class=GzipRoute)
 
 # --- Route Lookup ---
 
