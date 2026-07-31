@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.routing import APIRoute
 
-from app.core import route_cache, segment_cache
+from app.core.redis import RouteCache, SegmentCache, DeadPairCache
 from app.core.dates import validate_journey_date
 from app.core.manifest_store import (
     RouteManifestEntry,
@@ -73,7 +73,7 @@ router = APIRouter(prefix="/api", route_class=GzipRoute)
 
 @router.post("/route/manifest", response_model=ManifestResponse | TrainRoute)
 async def route_manifest(body: RouteManifestRequest, store: ManifestStoreDep):
-    cached = route_cache.get(body.train_number)
+    cached = await RouteCache.get(body.train_number)
     if cached:
         return cached
 
@@ -119,7 +119,7 @@ async def route_process(body: ProcessRequest, store: ManifestStoreDep):
             train_name=entry.train_name or "",
             stations=[StationStop(**s) for s in stops],
         )
-        route_cache.put(entry.train_number, route)
+        await RouteCache.put(entry.train_number, route)
         return route
 
 
@@ -134,9 +134,13 @@ async def seat_finder_manifest(
     source = body.user_source.strip().upper()
     destination = body.user_destination.strip().upper()
 
-    cached_route = route_cache.get(body.train_number)
+    cached_route = await RouteCache.get(body.train_number)
     if cached_route:
-        pairs = enumerate_covering_pairs(cached_route, source, destination)
+        all_pairs = enumerate_covering_pairs(cached_route, source, destination)
+        pairs = []
+        for b, a in all_pairs:
+            if not await DeadPairCache.get(body.train_number, b.code, a.code):
+                pairs.append((b, a))
         fetch_group = (
             body.quota.value
             if body.quota in (BookingQuota.LADIES, BookingQuota.SENIOR)
@@ -149,7 +153,7 @@ async def seat_finder_manifest(
         for b, a in pairs:
             fid = f"{b.code}|{a.code}"
             fetch_id_to_pair[fid] = (b, a)
-            hit = segment_cache.get(b.code, a.code, date_str, fetch_group)
+            hit = await SegmentCache.get(b.code, a.code, date_str, fetch_group)
             if hit is not None:
                 cached_segs[fid] = hit
             else:
@@ -236,10 +240,14 @@ async def seat_finder_process(body: ProcessRequest, store: ManifestStoreDep):
             train_name=entry.train_name or "",
             stations=[StationStop(**s) for s in stops],
         )
-        route_cache.put(entry.train_number, route)
-        pairs = enumerate_covering_pairs(
+        await RouteCache.put(entry.train_number, route)
+        all_pairs = enumerate_covering_pairs(
             route, entry.user_source, entry.user_destination
         )
+        pairs = []
+        for b, a in all_pairs:
+            if not await DeadPairCache.get(entry.train_number, b.code, a.code):
+                pairs.append((b, a))
         fetch_group = (
             entry.quota.value
             if entry.quota in (BookingQuota.LADIES, BookingQuota.SENIOR)
@@ -253,7 +261,7 @@ async def seat_finder_process(body: ProcessRequest, store: ManifestStoreDep):
         for b, a in pairs:
             fid = f"{b.code}|{a.code}"
             fetch_id_to_pair[fid] = (b, a)
-            hit = segment_cache.get(b.code, a.code, date_str, fetch_group)
+            hit = await SegmentCache.get(b.code, a.code, date_str, fetch_group)
             if hit is not None:
                 cached_segs[fid] = hit
             else:
@@ -288,10 +296,15 @@ async def seat_finder_process(body: ProcessRequest, store: ManifestStoreDep):
             raise HTTPException(500, "Missing pairs or route in entry")
 
         submitted_ids = [r.fetch_id for r in body.results]
-        if len(submitted_ids) != len(set(submitted_ids)):
+        submitted_set = set(submitted_ids)
+        if len(submitted_ids) != len(submitted_set):
             raise HTTPException(400, "Duplicate fetch_id")
-        if not set(submitted_ids) <= set(entry.fetch_id_to_pair.keys()):
+        if not submitted_set <= set(entry.fetch_id_to_pair.keys()):
             raise HTTPException(400, "Unknown fetch_id")
+
+        for fetch_id, (board, alight) in entry.fetch_id_to_pair.items():
+            if fetch_id not in submitted_set:
+                await DeadPairCache.put(entry.train_number, board.code, alight.code)
 
         fetch_group = (
             entry.quota.value
@@ -315,9 +328,9 @@ async def seat_finder_process(body: ProcessRequest, store: ManifestStoreDep):
                 except (json.JSONDecodeError, AttributeError):
                     pass
             parsed_segments[r.fetch_id] = train_list
+            board, alight = r.fetch_id.split("|")
             if train_list:
-                board, alight = r.fetch_id.split("|")
-                segment_cache.put(board, alight, date_str, fetch_group, train_list)
+                await SegmentCache.put(board, alight, date_str, fetch_group, train_list)
 
         if entry.cached_segments:
             parsed_segments.update(entry.cached_segments)
@@ -345,7 +358,7 @@ async def trains_between_manifest(
     destination = body.destination.strip().upper()
     date_str = format_date(body.date)
 
-    cached = segment_cache.get(source, destination, date_str, None)
+    cached = await SegmentCache.get(source, destination, date_str, None)
     if cached is not None:
         raw_trains = build_raw_trains_between(cached)
         return TrainsBetweenResponse(
@@ -391,7 +404,7 @@ async def trains_between_process(body: ProcessRequest, store: ManifestStoreDep):
             pass
 
     if train_list:
-        segment_cache.put(
+        await SegmentCache.put(
             entry.source,
             entry.destination,
             format_date(entry.journey_date),
@@ -421,7 +434,7 @@ async def trains_between_quota_manifest(
     date_str = format_date(body.date)
     fetch_group = body.quota.value
 
-    cached = segment_cache.get(source, destination, date_str, fetch_group)
+    cached = await SegmentCache.get(source, destination, date_str, fetch_group)
     if cached is not None:
         rows = build_quota_rows(cached)
         return TrainsQuotaAvailabilityResponse(
@@ -476,7 +489,7 @@ async def trains_between_quota_process(body: ProcessRequest, store: ManifestStor
             pass
 
     if train_list:
-        segment_cache.put(
+        await SegmentCache.put(
             entry.source,
             entry.destination,
             format_date(entry.journey_date),
