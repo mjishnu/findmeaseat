@@ -11,11 +11,14 @@ import re
 from typing import Any
 from urllib.parse import urlencode
 
-from app.schemas import BookingQuota, FetchDescriptor
+from app.schemas import BookingQuota, FetchDescriptor, TravelClass
 
 ERAIL_GET_TRAINS = "https://erail.in/rail/getTrains.aspx"
 ERAIL_DATA = "https://erail.in/data.aspx"
 CONFIRMTKT_SEARCH = "https://cttrainsapi.confirmtkt.com/api/v1/trains/search"
+CONFIRMTKT_AVAILABILITY = (
+    "https://cttrainsapi.confirmtkt.com/api/v1/availability/fetchAvailability"
+)
 
 
 def _clean(segment: str) -> list[str]:
@@ -100,6 +103,39 @@ def build_confirmtkt_descriptor(
         params["quota"] = quota.value
     return FetchDescriptor(url=f"{CONFIRMTKT_SEARCH}?{urlencode(params)}",
                            headers=_BROWSER_HEADERS, fetch_id=fetch_id)
+
+
+def build_availability_descriptor(
+    train_number: str,
+    travel_class: TravelClass,
+    quota: BookingQuota,
+    source: str,
+    destination: str,
+    date: dt.date,
+    fetch_id: str,
+) -> FetchDescriptor:
+    params = {
+        "trainNo": train_number,
+        "travelClass": travel_class.value,
+        "quota": quota.value,
+        "sourceStationCode": source,
+        "destinationStationCode": destination,
+        "dateOfJourney": format_date(date),
+        "enableTG": "true",
+        "tGPlan": "CTG-A48",
+        "showTGPrediction": "false",
+        "tgColor": "DEFAULT",
+        "showPredictionGlobal": "true",
+        "showNewMealOptions": "true",
+        "showNewAlternates": "true",
+        "showNewAltText": "true",
+    }
+    return FetchDescriptor(
+        url=f"{CONFIRMTKT_AVAILABILITY}?{urlencode(params)}",
+        headers=_BROWSER_HEADERS,
+        fetch_id=fetch_id,
+        method="POST",
+    )
 
 
 # confirmtkt cache key per quota: GN/TQ are bundled on the train object; LD/SS land

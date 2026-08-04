@@ -31,6 +31,9 @@ export function SeatFinderPanel({ initialPrefill }: SeatFinderPanelProps) {
   const [lastQuery, setLastQuery] = useState<SearchQuery | null>(null)
   const [travelClass, setTravelClass] = useState<TravelClass>(DEFAULT_TRAVEL_CLASS)
   const [quota, setQuota] = useState<BookingQuota>(DEFAULT_QUOTA)
+  const [partial, setPartial] = useState(false)
+  const [minCoveragePct, setMinCoveragePct] = useState(0.75)
+  const [requireConnect, setRequireConnect] = useState(true)
   const abortRef = useRef<AbortController | null>(null)
 
   async function handleSearch(query: SearchQuery) {
@@ -73,6 +76,12 @@ export function SeatFinderPanel({ initialPrefill }: SeatFinderPanelProps) {
         onTravelClassChange={setTravelClass}
         quota={quota}
         onQuotaChange={setQuota}
+        partial={partial}
+        onPartialChange={setPartial}
+        minCoveragePct={minCoveragePct}
+        onMinCoveragePctChange={setMinCoveragePct}
+        requireConnect={requireConnect}
+        onRequireConnectChange={setRequireConnect}
         initial={initialPrefill}
       />
 

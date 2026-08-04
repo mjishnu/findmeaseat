@@ -26,6 +26,12 @@ interface SearchFormProps {
   onTravelClassChange: (travelClass: TravelClass) => void
   quota: BookingQuota
   onQuotaChange: (quota: BookingQuota) => void
+  partial: boolean
+  onPartialChange: (v: boolean) => void
+  minCoveragePct: number
+  onMinCoveragePctChange: (v: number) => void
+  requireConnect: boolean
+  onRequireConnectChange: (v: boolean) => void
   // Seed values from a Train Search deep-link. The parent remounts this form
   // (via key) when a new prefill arrives, so seeding at useState suffices.
   initial?: SearchPrefill
@@ -38,6 +44,12 @@ export function SearchForm({
   onTravelClassChange,
   quota,
   onQuotaChange,
+  partial,
+  onPartialChange,
+  minCoveragePct,
+  onMinCoveragePctChange,
+  requireConnect,
+  onRequireConnectChange,
   initial,
 }: SearchFormProps) {
   const [trainNumber, setTrainNumber] = useState(initial?.trainNumber ?? '')
@@ -85,8 +97,8 @@ export function SearchForm({
     if (!autoSearchPending.current) return
     if (searching || !route || !source || !destination || !date) return
     autoSearchPending.current = false
-    onSearch({ trainNumber, source, destination, date, travelClass, quota })
-  }, [route, source, destination, date, searching, trainNumber, travelClass, quota, onSearch])
+    onSearch({ trainNumber, source, destination, date, travelClass, quota, partial, minCoveragePct, requireConnect })
+  }, [route, source, destination, date, searching, trainNumber, travelClass, quota, partial, minCoveragePct, requireConnect, onSearch])
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -98,6 +110,9 @@ export function SearchForm({
       date,
       travelClass, // controlled — stays in sync when the switch banner changes it
       quota, // controlled — likewise kept in sync with the banner
+      partial,
+      minCoveragePct,
+      requireConnect,
     })
   }
 
@@ -250,6 +265,96 @@ export function SearchForm({
               </option>
             ))}
           </select>
+        </div>
+      </div>
+
+      {/* --- Partial coverage controls --- */}
+      <div className="mt-5 overflow-hidden rounded-lg border border-rail-200 bg-paper-100/60">
+        {/* Toggle header */}
+        <label className="group flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-paper-200/40">
+          <span className="relative inline-flex h-[22px] w-[40px] shrink-0 items-center">
+            <input
+              id="partialToggle"
+              type="checkbox"
+              checked={partial}
+              onChange={(e) => onPartialChange(e.target.checked)}
+              className="peer sr-only"
+            />
+            <span className="block h-[22px] w-[40px] rounded-full bg-rail-200 shadow-inner transition-colors duration-200 peer-checked:bg-rail-900 peer-focus-visible:ring-2 peer-focus-visible:ring-rail-500 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-paper-50" />
+            <span className="absolute left-[3px] top-[3px] h-4 w-4 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.2)] transition-transform duration-200 peer-checked:translate-x-[18px]" />
+          </span>
+          <div className="flex flex-col">
+            <span className="font-ticket text-xs font-semibold uppercase tracking-[0.15em] text-rail-700">
+              Allow Partial Route Seats
+            </span>
+            <span className="mt-0.5 text-[11px] leading-tight text-rail-500">
+              Find confirmed seats covering part of your trip when full route is not available
+            </span>
+          </div>
+        </label>
+
+        {/* Expandable sub-controls */}
+        <div
+          className="grid transition-[grid-template-rows] duration-300 ease-in-out"
+          style={{ gridTemplateRows: partial ? '1fr' : '0fr' }}
+        >
+          <div className="overflow-hidden">
+            <div className="border-t border-rail-200/50 px-4 pb-4 pt-3">
+              {/* Coverage slider */}
+              <div>
+                <div className="flex items-baseline justify-between">
+                  <label htmlFor="minCoverage" className={LABEL}>
+                    Minimum Journey Covered
+                  </label>
+                  <span className="font-ticket text-sm font-semibold tabular-nums text-rail-950">
+                    {Math.round(minCoveragePct * 100)}%
+                  </span>
+                </div>
+                <div className="group/slider relative mt-2.5">
+                  <input
+                    id="minCoverage"
+                    type="range"
+                    min={10}
+                    max={100}
+                    step={5}
+                    value={Math.round(minCoveragePct * 100)}
+                    onChange={(e) => onMinCoveragePctChange(Number(e.target.value) / 100)}
+                    className="coverage-slider h-2 w-full cursor-pointer appearance-none rounded-full bg-rail-200/80"
+                    style={{ '--fill': `${((Math.round(minCoveragePct * 100) - 10) / 90) * 100}%` } as React.CSSProperties}
+                  />
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-rail-500">
+                  Only show tickets covering at least this percentage of your total route
+                </p>
+              </div>
+
+              {/* Separator */}
+              <div className="my-4 border-t border-dashed border-rail-200/60" />
+
+              {/* Require connect toggle */}
+              <label className="group flex cursor-pointer items-center gap-3.5">
+                <span className="relative inline-flex h-[22px] w-[40px] shrink-0 items-center">
+                  <input
+                    id="requireConnect"
+                    type="checkbox"
+                    checked={requireConnect}
+                    onChange={(e) => onRequireConnectChange(e.target.checked)}
+                    className="peer sr-only"
+                  />
+                  <span className="block h-[22px] w-[40px] rounded-full bg-rail-200 shadow-inner transition-colors duration-200 peer-checked:bg-rail-900 peer-focus-visible:ring-2 peer-focus-visible:ring-rail-500 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-paper-50" />
+                  <span className="absolute left-[3px] top-[3px] h-4 w-4 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.2)] transition-transform duration-200 peer-checked:translate-x-[18px]" />
+                </span>
+                <div className="flex flex-col">
+                  <span className="font-ticket text-[11px] font-semibold uppercase tracking-[0.15em] text-rail-700">
+                    Connect at Origin or Destination
+                  </span>
+                  <span className="mt-0.5 text-[11px] leading-tight text-rail-500">
+                    Only show tickets starting at your boarding station or ending at your destination station
+                  </span>
+                </div>
+              </label>
+            </div>
+          </div>
         </div>
       </div>
 
