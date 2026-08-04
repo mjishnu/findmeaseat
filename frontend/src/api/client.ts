@@ -24,6 +24,7 @@ export const RECOMMENDATION_NOTE_CODE = {
   EXTRA_FARE: 5,
   ALIGHT_CHANGE: 6,
   MISSING_PREDICTION: 7,
+  PARTIAL_COVERAGE: 8,
 } as const
 
 export type RecommendationNoteCode =
@@ -80,6 +81,7 @@ export interface Recommendation {
   extra_km: number
   fare: number | null
   extra_fare: number | null
+  coverage_pct: number  // 1.0 for full coverage, < 1.0 for partial
   notes: RecommendationNoteCode[]
 }
 
@@ -111,6 +113,8 @@ export interface RecommendationResponse {
   pairs_skipped: number
   recommendations: Recommendation[]
   alternatives: SwitchAlternative[]
+  partial: boolean
+  min_coverage_pct: number
 }
 
 export class ApiError extends Error {
@@ -148,6 +152,8 @@ export interface FetchDescriptor {
   url: string
   headers: Record<string, string>
   fetch_id: string
+  method?: string
+  body?: string
 }
 
 export interface ManifestResponse {
@@ -274,7 +280,12 @@ async function fetchWithRetry(
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       if (attempt > 0) await new Promise(r => setTimeout(r, 500 * attempt))
-      const res = await fetch(f.url, { headers: f.headers, signal })
+      const res = await fetch(f.url, { 
+        method: f.method || 'GET',
+        headers: f.headers, 
+        body: f.body,
+        signal 
+      })
       let body = await res.text()
       // Pre-parse confirmtkt responses to reduce payload size
       if (f.url.includes(CONFIRMTKT_HOST)) {
@@ -326,6 +337,9 @@ export interface SearchQuery {
   date: string // YYYY-MM-DD
   travelClass: TravelClass
   quota: BookingQuota
+  partial?: boolean
+  minCoveragePct?: number
+  requireConnect?: boolean
 }
 
 export function findOptimalRoute(
@@ -339,6 +353,9 @@ export function findOptimalRoute(
     date: query.date,
     travel_class: query.travelClass,
     quota: query.quota,
+    partial: query.partial ?? false,
+    min_coverage_pct: query.minCoveragePct ?? 0.75,
+    require_connect: query.requireConnect ?? true,
   }, signal, query.trainNumber)
 }
 

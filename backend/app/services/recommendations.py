@@ -4,10 +4,11 @@ actions."""
 
 import asyncio
 import datetime as dt
+import re
 from dataclasses import dataclass
 
 from app.core.dates import validate_journey_date
-from app.core.pairs import enumerate_covering_pairs
+from app.core.pairs import enumerate_covering_pairs, enumerate_partial_pairs
 from app.core.parser import parse_availability
 from app.core.ranking import confirmation_probability, option_score
 from app.exceptions import (
@@ -28,6 +29,7 @@ from app.schemas import (
     UserLeg,
 )
 
+MAX_VERIFY_CANDIDATES = 10
 MAX_RECOMMENDATIONS = 3
 MAX_ALTERNATIVES = 3
 
@@ -41,6 +43,9 @@ class _Candidate:
     extra_km: int
     fare: int | None
     extra_fare: int | None
+    coverage_pct: float = 1.0
+    board_at: str = ""
+    alight_at: str = ""
 
 
 @dataclass
@@ -51,11 +56,21 @@ class _PairResult:
     candidate: _Candidate | None
 
 
+def _get_tiebreaker_score(cand: _Candidate) -> tuple[int, int]:
+    m = re.search(r'\d+', cand.parsed.raw)
+    num = int(m.group()) if m else 0
+    if cand.parsed.status == AvailabilityStatus.WAITLIST:
+        queue_score = -num
+    else:
+        queue_score = num
+    return (queue_score, -cand.extra_km)
+
+
 class RecommendationService:
     def __init__(self, provider: RailDataProvider) -> None:
         self._provider = provider
 
-    async def find_optimal_route(
+    async def rank_candidates(
         self,
         train_number: str,
         user_source: str,
@@ -63,7 +78,10 @@ class RecommendationService:
         journey_date: dt.date,
         travel_class: TravelClass = TravelClass.SL,
         quota: BookingQuota = BookingQuota.GENERAL,
-    ) -> RecommendationResponse:
+        partial: bool = False,
+        min_coverage_pct: float = 1.0,
+        require_connect: bool = True,
+    ) -> dict:
         source = user_source.strip().upper()
         destination = user_destination.strip().upper()
         validate_journey_date(journey_date)
@@ -73,6 +91,10 @@ class RecommendationService:
             raise TrainNotFoundError(train_number)
 
         pairs = enumerate_covering_pairs(route, source, destination)
+        if partial:
+            pairs = pairs + enumerate_partial_pairs(
+                route, source, destination, min_coverage_pct, require_connect
+            )
         km = {stop.code: stop.distance_km for stop in route.stations}
         user_leg_km = km[destination] - km[source]
         (
@@ -92,22 +114,34 @@ class RecommendationService:
             quota,
         )
 
-        candidates.sort(
-            key=lambda c: (
+        # Compute coverage_pct for each candidate
+        for c in candidates:
+            start_code = c.board.code if km[c.board.code] > km[source] else source
+            end_code = c.alight.code if km[c.alight.code] < km[destination] else destination
+            c.board_at = start_code
+            c.alight_at = end_code
+            overlap_start_km = km[start_code]
+            overlap_end_km = km[end_code]
+            c.coverage_pct = (overlap_end_km - overlap_start_km) / user_leg_km if user_leg_km > 0 else 1.0
+
+        def cand_sort_key(c: _Candidate, ul_fare: int | None) -> tuple:
+            base_score = option_score(
+                c.probability, c.extra_fare, ul_fare, c.extra_km, user_leg_km
+            )
+            return (
+                round(base_score * c.coverage_pct, 4),
                 c.parsed.status,
-                option_score(
-                    c.probability, c.extra_fare, user_leg_fare, c.extra_km, user_leg_km
-                ),
-            ),
+                c.coverage_pct,
+                *_get_tiebreaker_score(c),
+            )
+
+        candidates.sort(
+            key=lambda c: cand_sort_key(c, user_leg_fare),
             reverse=True,
         )
 
-        recommendations = [
-            self._build_recommendation(rank, cand, source, destination, quota)
-            for rank, cand in enumerate(candidates[:MAX_RECOMMENDATIONS], start=1)
-        ]
-        chosen_best = max(candidates, key=lambda c: c.probability, default=None)
-        chosen_best_prob = chosen_best.probability if chosen_best else -1.0
+        chosen_best = candidates[0] if candidates else None
+        chosen_best_key = cand_sort_key(chosen_best, user_leg_fare) if chosen_best else None
         chosen_best_fare = chosen_best.fare if chosen_best else user_leg_fare
         alternatives = await self._build_better_alternatives(
             train_number,
@@ -119,27 +153,170 @@ class RecommendationService:
             journey_date,
             travel_class,
             quota,
-            chosen_best_prob,
+            chosen_best_key,
             chosen_best_fare,
         )
+        
+        # Serialize top 10 candidates
+        serialized_candidates = [
+            {
+                "board": c.board.model_dump(),
+                "alight": c.alight.model_dump(),
+                "parsed": c.parsed.model_dump(),
+                "probability": c.probability,
+                "extra_km": c.extra_km,
+                "fare": c.fare,
+                "extra_fare": c.extra_fare,
+                "coverage_pct": c.coverage_pct,
+                "board_at": c.board_at,
+                "alight_at": c.alight_at,
+            }
+            for c in candidates[:MAX_VERIFY_CANDIDATES]
+        ]
+        
+        serialized_alternatives = [a.model_dump() for a in alternatives]
+        
+        user_leg_dict = {
+            "source": source,
+            "destination": destination,
+            "distance_km": user_leg_km,
+            "fare": user_leg_fare,
+            "availability": user_leg_parsed.model_dump() if user_leg_parsed else None,
+        }
+        
+        context = {
+            "train_number": route.train_number,
+            "train_name": route.train_name,
+            "journey_date": journey_date.isoformat(),
+            "travel_class": travel_class.value,
+            "quota": quota.value,
+            "user_leg": user_leg_dict,
+            "pairs_evaluated": len(pairs),
+            "pairs_skipped": pairs_skipped,
+            "partial": partial,
+            "min_coverage_pct": min_coverage_pct,
+        }
+        
+        return {
+            "candidates": serialized_candidates,
+            "alternatives": serialized_alternatives,
+            "context": context
+        }
+
+    def build_verified_response(
+        self,
+        ranked_data: dict,
+        live_overrides: dict[str, dict] | None = None
+    ) -> RecommendationResponse:
+        """Re-rank top-10 candidates with live data, returning the final top-3."""
+        live_overrides = live_overrides or {}
+        context = ranked_data["context"]
+        source = context["user_leg"]["source"]
+        destination = context["user_leg"]["destination"]
+        user_leg_km = context["user_leg"]["distance_km"]
+        user_leg_fare = context["user_leg"]["fare"]
+        quota = BookingQuota(context["quota"])
+        
+        updated_candidates: list[_Candidate] = []
+        
+        for cand_dict in ranked_data["candidates"]:
+            board = StationStop(**cand_dict["board"])
+            alight = StationStop(**cand_dict["alight"])
+            parsed = ParsedAvailability(**cand_dict["parsed"])
+            probability = cand_dict["probability"]
+            fare = cand_dict["fare"]
+            
+            fetch_id = f"{board.code}|{alight.code}"
+            
+            if fetch_id in live_overrides:
+                override = live_overrides[fetch_id]
+                if "availability" in override:
+                    parsed = override["availability"]
+                if "prediction_pct" in override:
+                    probability = confirmation_probability(parsed, override["prediction_pct"])
+                else:
+                    probability = confirmation_probability(parsed, None)
+                if "fare" in override:
+                    fare = override["fare"]
+
+            extra_fare = (
+                fare - user_leg_fare
+                if fare is not None and user_leg_fare is not None
+                else None
+            )
+            # Clamp negative extra_fare to None for partial pairs (shorter booking)
+            if extra_fare is not None and extra_fare < 0:
+                extra_fare = None
+
+            updated_candidates.append(_Candidate(
+                board=board,
+                alight=alight,
+                parsed=parsed,
+                probability=probability,
+                extra_km=cand_dict["extra_km"],
+                fare=fare,
+                extra_fare=extra_fare,
+                coverage_pct=cand_dict.get("coverage_pct", 1.0),
+                board_at=cand_dict.get("board_at", ""),
+                alight_at=cand_dict.get("alight_at", ""),
+            ))
+            
+        def verified_sort_key(c: _Candidate) -> tuple:
+            base_score = option_score(
+                c.probability, c.extra_fare, user_leg_fare, c.extra_km, user_leg_km
+            )
+            return (
+                round(base_score * c.coverage_pct, 4),
+                c.parsed.status,
+                c.coverage_pct,
+                *_get_tiebreaker_score(c),
+            )
+
+        updated_candidates.sort(
+            key=verified_sort_key,
+            reverse=True,
+        )
+
+        recommendations = [
+            self._build_recommendation(rank, cand, source, destination, quota)
+            for rank, cand in enumerate(updated_candidates[:MAX_RECOMMENDATIONS], start=1)
+        ]
+
+        alternatives = [SwitchAlternative(**a) for a in ranked_data["alternatives"]]
+        user_leg = UserLeg(**context["user_leg"])
+
         return RecommendationResponse(
-            train_number=route.train_number,
-            train_name=route.train_name,
-            journey_date=journey_date,
-            travel_class=travel_class,
+            train_number=context["train_number"],
+            train_name=context["train_name"],
+            journey_date=dt.date.fromisoformat(context["journey_date"]),
+            travel_class=TravelClass(context["travel_class"]),
             quota=quota,
-            user_leg=UserLeg(
-                source=source,
-                destination=destination,
-                distance_km=user_leg_km,
-                fare=user_leg_fare,
-                availability=user_leg_parsed,
-            ),
-            pairs_evaluated=len(pairs),
-            pairs_skipped=pairs_skipped,
+            user_leg=user_leg,
+            pairs_evaluated=context["pairs_evaluated"],
+            pairs_skipped=context["pairs_skipped"],
             recommendations=recommendations,
             alternatives=alternatives,
+            partial=context.get("partial", False),
+            min_coverage_pct=context.get("min_coverage_pct", 1.0),
         )
+
+    async def find_optimal_route(
+        self,
+        train_number: str,
+        user_source: str,
+        user_destination: str,
+        journey_date: dt.date,
+        travel_class: TravelClass = TravelClass.SL,
+        quota: BookingQuota = BookingQuota.GENERAL,
+        partial: bool = False,
+        min_coverage_pct: float = 1.0,
+        require_connect: bool = True,
+    ) -> RecommendationResponse:
+        ranked_data = await self.rank_candidates(
+            train_number, user_source, user_destination, journey_date,
+            travel_class, quota, partial, min_coverage_pct, require_connect,
+        )
+        return self.build_verified_response(ranked_data)
 
     async def _evaluate_class(
         self,
@@ -208,7 +385,7 @@ class RecommendationService:
         journey_date: dt.date,
         searched_class: TravelClass,
         searched_quota: BookingQuota,
-        searched_best_prob: float,
+        searched_best_key: tuple | None,
         searched_best_fare: int | None,
     ) -> list[SwitchAlternative]:
         """Build a list of better alternative classes than the current in the same quota(SL in WL10 vs 3A in AVL5)."""
@@ -238,11 +415,35 @@ class RecommendationService:
                     tc,
                     searched_quota,
                 )
+                for c in candidates:
+                    start_code = c.board.code if km[c.board.code] > km[source] else source
+                    end_code = c.alight.code if km[c.alight.code] < km[destination] else destination
+                    c.board_at = start_code
+                    c.alight_at = end_code
+                    overlap_start_km = km[start_code]
+                    overlap_end_km = km[end_code]
+                    c.coverage_pct = (overlap_end_km - overlap_start_km) / user_leg_km if user_leg_km > 0 else 1.0
+
                 candidates = [c for c in candidates if c.probability > 0]
             except ProviderUnavailableError:
                 continue
-            best = max(candidates, key=lambda c: c.probability, default=None)
-            if best is None or best.probability <= searched_best_prob:
+
+            if not candidates:
+                continue
+
+            def alt_sort_key(c: _Candidate) -> tuple:
+                base_score = option_score(
+                    c.probability, c.extra_fare, _cell_fare, c.extra_km, user_leg_km
+                )
+                return (
+                    round(base_score * c.coverage_pct, 4),
+                    c.parsed.status,
+                    c.coverage_pct,
+                    *_get_tiebreaker_score(c),
+                )
+
+            best = max(candidates, key=alt_sort_key)
+            if searched_best_key is not None and alt_sort_key(best) <= searched_best_key:
                 continue  # only better than the searched class's best are kept others skipped
             fare_delta = (
                 best.fare - searched_best_fare
@@ -286,7 +487,7 @@ class RecommendationService:
                 board=board, alight=alight, parsed=parsed, candidate=None
             )
 
-        extra_km = km[alight.code] - km[board.code] - user_leg_km
+        extra_km = max(0, km[alight.code] - km[board.code] - user_leg_km)
         fare = await self._provider.get_fare(
             train_number, board.code, alight.code, journey_date, travel_class, quota
         )
@@ -298,6 +499,9 @@ class RecommendationService:
             if fare is not None and user_leg_fare is not None
             else None
         )
+        # Clamp negative extra_fare to None for partial pairs (shorter booking)
+        if extra_fare is not None and extra_fare < 0:
+            extra_fare = None
         probability = confirmation_probability(parsed, prediction)
         candidate = _Candidate(
             board=board,
@@ -340,17 +544,25 @@ class RecommendationService:
             notes.append(RecommendationNoteCode.BOARDING_CHANGE)
         if cand.alight.code != destination:
             notes.append(RecommendationNoteCode.ALIGHT_CHANGE)
+        if cand.coverage_pct < 1.0:
+            notes.append(RecommendationNoteCode.PARTIAL_COVERAGE)
+
+        # For full-coverage (covering) pairs, the user rides their full journey.
+        # For partial pairs, they ride the overlap: max(board, source) → min(alight, dest).
+        board_at = cand.board_at if cand.board_at else source
+        alight_at = cand.alight_at if cand.alight_at else destination
 
         return Recommendation(
             rank=rank,
             book_from=cand.board.code,
             book_to=cand.alight.code,
-            board_at=source,
-            alight_at=destination,
+            board_at=board_at,
+            alight_at=alight_at,
             availability=cand.parsed,
             probability=round(cand.probability, 3),
             extra_km=cand.extra_km,
             fare=cand.fare,
             extra_fare=cand.extra_fare,
+            coverage_pct=round(cand.coverage_pct, 3),
             notes=notes,
         )

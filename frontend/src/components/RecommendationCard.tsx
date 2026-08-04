@@ -11,6 +11,7 @@ interface RecommendationCardProps {
   rec: Recommendation
   quota: BookingQuota
   highlight?: boolean
+  partial?: boolean
 }
 
 function renderNote(note: RecommendationNoteCode, rec: Recommendation): string {
@@ -29,6 +30,8 @@ function renderNote(note: RecommendationNoteCode, rec: Recommendation): string {
       return `Get off at ${rec.alight_at}; the ticket runs on to ${rec.book_to} but the difference is not refunded.`
     case RECOMMENDATION_NOTE_CODE.MISSING_PREDICTION:
       return 'confirmtkt has no confirmation estimate for this leg; ranked last.'
+    case RECOMMENDATION_NOTE_CODE.PARTIAL_COVERAGE:
+      return `Covers ${Math.round(rec.coverage_pct * 100)}% of your journey — you travel ${rec.board_at}→${rec.alight_at} only. Arrange your own travel for the rest.`
     default:
       return note
   }
@@ -50,10 +53,17 @@ function buildAction(rec: Recommendation, quota: string): string {
   return action
 }
 
-export function RecommendationCard({ rec, quota, highlight = false }: RecommendationCardProps) {
+export function RecommendationCard({
+  rec,
+  quota,
+  highlight = false,
+  partial = false,
+}: RecommendationCardProps) {
+  const showCoverage = partial || rec.coverage_pct < 1.0
+
   return (
     <article
-      className={`overflow-hidden rounded-xl border bg-paper-50 shadow-sm transition-shadow hover:shadow-md ${
+      className={`flex h-full flex-col justify-between overflow-hidden rounded-xl border bg-paper-50 shadow-sm transition-shadow hover:shadow-md ${
         highlight ? 'border-signal-amber ring-1 ring-signal-amber/40' : 'border-rail-200'
       }`}
     >
@@ -79,18 +89,31 @@ export function RecommendationCard({ rec, quota, highlight = false }: Recommenda
           <StatusBadge availability={rec.availability} />
         </div>
 
-        <p className="mt-3 font-ticket text-3xl font-semibold tracking-tight text-rail-950">
-          {rec.book_from}
-          <span className="mx-2 text-rail-500">➝</span>
-          {rec.book_to}
-        </p>
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <p className="font-ticket text-3xl font-semibold tracking-tight text-rail-950">
+            {rec.book_from}
+            <span className="mx-2 text-rail-500">➝</span>
+            {rec.book_to}
+          </p>
+          {showCoverage && (
+            <span
+              className={`shrink-0 rounded px-2 py-1 font-ticket text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                rec.coverage_pct >= 1.0
+                  ? 'border border-signal-green/40 bg-signal-green/15 text-signal-green-deep'
+                  : 'border border-signal-amber/40 bg-signal-amber/15 text-signal-amber-deep'
+              }`}
+            >
+              {Math.round(rec.coverage_pct * 100)}% coverage
+            </span>
+          )}
+        </div>
         <p className="mt-1 text-xs text-rail-700">
           board at <span className="font-semibold">{rec.board_at}</span> · alight at{' '}
           <span className="font-semibold">{rec.alight_at}</span>
         </p>
       </div>
 
-      <div className="space-y-4 px-5 pb-5 pt-4">
+      <div className="flex flex-1 flex-col justify-start space-y-4 px-5 pb-5 pt-4">
         <p className="text-sm leading-relaxed text-rail-950">{buildAction(rec, quota)}</p>
 
         <div>
@@ -133,6 +156,7 @@ export function RecommendationCard({ rec, quota, highlight = false }: Recommenda
             ))}
           </ul>
         )}
+        <div className="flex-1" />
       </div>
     </article>
   )

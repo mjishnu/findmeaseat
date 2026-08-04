@@ -8,8 +8,8 @@ every file should have an obvious home.
 Indian Railways hides **different quotas on different station pairs of the same
 train**. A berth that is waitlisted for your exact leg may be AVAILABLE if you
 book from one station earlier or to one station later. FindMeASeat checks every
-pair that covers your journey, reads live availability, and ranks the bookings
-most likely to confirm.
+pair that covers your journey (and optionally, partial pairs that cover a portion of it), 
+reads live availability, and ranks the bookings most likely to confirm.
 
 Two features, two tabs:
 
@@ -57,8 +57,9 @@ in isolation.
 - [backend/app/core/pairs.py](../backend/app/core/pairs.py) — **the trick.**
   `enumerate_covering_pairs` returns every `(board, alight)` pair that fully
   covers `source→destination` (board at the source *or earlier*, alight at the
-  destination *or later*). Validates the stations are on the route and in the
-  right direction.
+  destination *or later*). Additionally, `enumerate_partial_pairs` yields pairs
+  that cover only a portion of the journey based on a minimum coverage percentage.
+  Validates the stations are on the route and in the right direction.
 - [backend/app/core/parser.py](../backend/app/core/parser.py) — turns the messy
   real-world strings (`AVAILABLE-0044`, `GNWL15/WL10`, `RAC 12/RAC 5`, `REGRET`,
   `AVAILABLE-0000`) into one `ParsedAvailability`. Case/space/hyphen/zero-pad
@@ -76,12 +77,11 @@ in isolation.
 
 - [backend/app/services/recommendations.py](../backend/app/services/recommendations.py)
   — the Seat Finder engine. The flow, top to bottom in `find_optimal_route`:
-  1. validate date, fetch route, `enumerate_covering_pairs`.
+  1. validate date, fetch route, `enumerate_covering_pairs` (and optionally `enumerate_partial_pairs`).
   2. `_evaluate_class`: fan out **one concurrent call per pair**
      (`asyncio.gather`), parse each, build a `_Candidate`. A pair whose upstream
      fails is *skipped* (counted in `pairs_skipped`), never fatal.
-  3. sort by `_rank_key`: **status tier first** (a seat in hand always beats a
-     waitlist, even a ~100% one), then score, probability, cost, distance.
+  3. sort by `cand_sort_key`: **combined score first** (balancing probability, fare penalty, and journey coverage), then status tier, exact coverage, and finally queue tiebreakers.
   4. take top 3, attach human-readable `action` + `notes` (e.g. "change boarding
      point on IRCTC").
   5. `_build_alternatives`: a "switch class" banner — reuses the *cached* pair
@@ -116,9 +116,10 @@ To avoid backend rate-limiting, the server makes **zero** outbound HTTP calls. I
   — The single provider implementation. Reads availability directly from pre-parsed `trainList` dicts (from browser fetches or the segment cache).
 - [backend/app/providers/irctc/client.py](../backend/app/providers/irctc/client.py)
   — Parsing helpers (`parse_erail_header`, `class_cache`) and URL builders. There is no HTTP client here.
-- **Two backend caches** in `core/`:
+- **Three backend caches** in `core/`:
   - `route_cache`: Stores parsed routes to avoid re-asking the browser to hit erail.
   - `segment_cache`: Stores parsed confirmtkt trainLists for 60s, allowing overlaps across pairs/searches to skip fetching entirely.
+  - `DeadPairCache`: A flag cache that remembers `(board, alight)` pairs that yielded "NOT AVAILABLE", preventing redundant requests for impossible legs.
 
 ## The core algorithm, end to end
 
@@ -126,7 +127,8 @@ A Seat Finder request for train 16512, KSR Bengaluru (SBC) → Kannur (CAN), SL:
 
 1. `routes.py` validates `^\d{5}$` and the date, calls `RecommendationService`.
 2. fetch the route; `enumerate_covering_pairs` yields pairs like SBC→CAN,
-   *(one stop before SBC)*→CAN, SBC→*(one stop after CAN)*, etc.
+   *(one stop before SBC)*→CAN, SBC→*(one stop after CAN)*, etc. If enabled,
+   partial pairs covering part of the journey are also added.
 3. for each pair, concurrently: confirmtkt segment search → raw availability
    string → `parse_availability` → `confirmation_probability` (using
    confirmtkt's prediction for waitlists) → `option_score` (penalize extra fare).
@@ -154,7 +156,7 @@ renders responses.
   `enableNearby` can surface a train serving a nearby station).
 - [frontend/src/components/SeatFinderPanel.tsx](../frontend/src/components/SeatFinderPanel.tsx)
   — Seat Finder state machine. Remembers the last query so the switch banner can
-  re-search in another class/quota. Resubmits abort the stale request.
+  re-search in another class/quota. Manages partial coverage filters. Resubmits abort the stale request.
 - Other components are presentational: `SearchForm`, `StationAutocomplete`,
   `ResultsList` / `RecommendationCard` / `ProbabilityMeter`,
   `TrainSearchResults` / `TrainBetweenCard`, the banners and skeletons.

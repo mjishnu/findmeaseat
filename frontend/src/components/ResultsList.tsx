@@ -26,6 +26,14 @@ export function ResultsList({ data }: ResultsListProps) {
         </div>
       </div>
 
+      {data.partial && (
+        <p className="mt-2 rounded-md bg-signal-amber/10 px-4 py-2 text-xs text-signal-amber-deep">
+          Partial coverage enabled — showing options covering ≥{' '}
+          {Math.round(data.min_coverage_pct * 100)}% of your journey. Higher coverage results are
+          prioritised.
+        </p>
+      )}
+
       {recommendations.length === 0 ? (
         <p className="mt-8 rounded-lg border border-dashed border-rail-200 p-8 text-center text-sm text-rail-700">
           {data.quota === 'TQ'
@@ -37,9 +45,14 @@ export function ResultsList({ data }: ResultsListProps) {
           {recommendations.map((rec) => (
             <div
               key={`${rec.book_from}-${rec.book_to}`}
-              className={rec.rank === 1 ? 'md:col-span-2' : ''}
+              className={`flex flex-col ${rec.rank === 1 ? 'md:col-span-2' : ''}`}
             >
-              <RecommendationCard rec={rec} quota={data.quota} highlight={rec.rank === 1} />
+              <RecommendationCard
+                rec={rec}
+                quota={data.quota}
+                highlight={rec.rank === 1}
+                partial={data.partial}
+              />
             </div>
           ))}
         </div>

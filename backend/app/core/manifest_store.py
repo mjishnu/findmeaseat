@@ -28,6 +28,10 @@ class SeatFinderEntry(ManifestEntry):
     journey_date: dt.date = field(default_factory=dt.date.today)
     travel_class: TravelClass = TravelClass.SL
     quota: BookingQuota = BookingQuota.GENERAL
+    # Partial-coverage controls
+    partial: bool = False
+    min_coverage_pct: float = 1.0
+    require_connect: bool = True
     # Set after header phase
     train_id: str | None = None
     train_no: str | None = None
@@ -38,6 +42,10 @@ class SeatFinderEntry(ManifestEntry):
     fetch_id_to_pair: dict[str, tuple[StationStop, StationStop]] | None = None
     # Segment-cached confirmtkt data for pairs that didn't need browser fetching
     cached_segments: dict[str, list[dict]] | None = None
+    # Set after fetch phase — carried into verify phase
+    verify_candidates: list[dict] | None = None
+    verify_alternatives: list[dict] | None = None
+    verify_context: dict | None = None
 
 # --- Train search (general + quota) ---
 @dataclass

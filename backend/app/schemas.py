@@ -73,6 +73,7 @@ class RecommendationNoteCode(IntEnum):
     EXTRA_FARE = 5
     ALIGHT_CHANGE = 6
     MISSING_PREDICTION = 7
+    PARTIAL_COVERAGE = 8
 
 
 class ParsedAvailability(BaseModel):
@@ -179,6 +180,7 @@ class Recommendation(BaseModel):
     extra_km: int
     fare: int | None  # None when the upstream did not price this class on this leg
     extra_fare: int | None  # difference vs the direct fare; None if either is unknown
+    coverage_pct: float = 1.0  # fraction of user's leg this pair covers (1.0 = full)
     notes: list[
         RecommendationNoteCode
     ]  # semantic note codes; frontend renders the copy
@@ -212,6 +214,8 @@ class RecommendationResponse(BaseModel):
     # Other (class, quota) cells with a better confirmation chance for the same
     # leg; empty when the searched cell is already the best available.
     alternatives: list[SwitchAlternative] = []
+    partial: bool = False  # echoes whether partial-coverage mode was active
+    min_coverage_pct: float = 1.0  # echoes the minimum coverage filter value
 
 
 # --- Manifest & Fetch Schemas --------------------------------------------------
@@ -220,6 +224,8 @@ class FetchDescriptor(BaseModel):
     url: str
     headers: dict[str, str]
     fetch_id: str
+    method: str = "GET"
+    body: str | None = None
 
 
 class ManifestResponse(BaseModel):
@@ -250,6 +256,9 @@ class SeatFinderManifestRequest(BaseModel):
     date: dt.date
     travel_class: TravelClass = TravelClass.SL
     quota: BookingQuota = BookingQuota.GENERAL
+    partial: bool = False
+    min_coverage_pct: float = Field(default=0.5, ge=0.0, le=1.0)
+    require_connect: bool = True
 
 
 class TrainSearchManifestRequest(BaseModel):
