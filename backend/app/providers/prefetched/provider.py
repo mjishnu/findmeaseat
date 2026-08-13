@@ -38,18 +38,18 @@ class PreFetchedProvider:
 
     async def get_fare(self, train_number, source, destination,
                         journey_date, travel_class,
-                        quota=BookingQuota.GENERAL) -> int | None:
+                        quota=BookingQuota.GENERAL) -> int:
         train = self._get_train(source, destination)
         if train is None:
-            return None
-        return _to_int(class_cache(train, travel_class.value, quota).get("fare")) or None
+            return -1
+        return _to_int(class_cache(train, travel_class.value, quota).get("fare"))
 
     async def get_seat_prediction(self, train_number, source, destination,
                                     journey_date, travel_class,
-                                    quota=BookingQuota.GENERAL) -> int | None:
+                                    quota=BookingQuota.GENERAL) -> int:
         train = self._get_train(source, destination)
         if train is None:
-            return None
+            return -1
         return _to_int(class_cache(train, travel_class.value, quota).get("predictionPercentage"))
 
     async def get_train_classes(self, train_number, source, destination,

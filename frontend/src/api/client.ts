@@ -79,8 +79,8 @@ export interface Recommendation {
   availability: ParsedAvailability
   probability: number  // -1 when confirmtkt has no estimate
   extra_km: number
-  fare: number | null
-  extra_fare: number | null
+  fare: number
+  extra_fare: number
   coverage_pct: number  // 1.0 for full coverage, < 1.0 for partial
   notes: RecommendationNoteCode[]
 }
@@ -89,7 +89,7 @@ export interface UserLeg {
   source: string
   destination: string
   distance_km: number
-  fare: number | null
+  fare: number
   availability: ParsedAvailability | null
 }
 
@@ -98,8 +98,8 @@ export interface SwitchAlternative {
   quota: BookingQuota
   availability: ParsedAvailability
   probability: number  // -1 = no estimate
-  fare: number | null
-  fare_delta: number | null
+  fare: number
+  fare_delta: number
 }
 
 export interface RecommendationResponse {
@@ -371,7 +371,7 @@ export interface ClassAvailability {
   travel_class: TravelClass
   availability: ParsedAvailability
   probability: number  // -1 when confirmtkt has no estimate
-  fare: number | null
+  fare: number
 }
 
 export interface TrainBetween {
@@ -383,10 +383,10 @@ export interface TrainBetween {
   to_name: string
   departure_time: string
   arrival_time: string
-  duration_min: number | null
+  duration_min: number
   running_days: string // "1111111", Mon→Sun
   has_pantry: boolean
-  distance_km: number | null
+  distance_km: number
   general: ClassAvailability[]
   tatkal: ClassAvailability[]
   allowed_quotas: string[]

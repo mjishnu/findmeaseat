@@ -3,8 +3,8 @@ import { StatusBadge } from './StatusBadge'
 
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
-function formatDuration(min: number | null): string {
-  if (min == null) return ''
+function formatDuration(min: number): string {
+  if (min < 0) return ''
   return `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, '0')}m`
 }
 
@@ -36,7 +36,7 @@ function ClassChip({ cls }: { cls: ClassAvailability }) {
           {cls.travel_class}
         </span>
         <span className="font-ticket text-xs text-rail-700">
-          {cls.fare != null ? `₹${cls.fare}` : '—'}
+          {cls.fare > 0 ? `₹${cls.fare}` : '—'}
         </span>
       </div>
       <div className="mt-1.5">
