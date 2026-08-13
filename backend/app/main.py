@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.redis import close_redis
 from app.exceptions import AppError
-from app.routers.routes import router
+from app.routers import api_router
 
 logging.basicConfig(level=logging.INFO)
 
@@ -42,4 +42,4 @@ def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
-app.include_router(router)
+app.include_router(api_router)

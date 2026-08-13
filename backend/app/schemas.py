@@ -42,6 +42,12 @@ class BookingQuota(str, Enum):
     LADIES = "LD"
     SENIOR = "SS"
 
+    @property
+    def fetch_group(self) -> str | None:
+        if self in (BookingQuota.LADIES, BookingQuota.SENIOR):
+            return self.value
+        return None
+
 
 class TravelClass(str, Enum):
     SL = "SL"
@@ -85,14 +91,14 @@ class Candidate:
     alight_at: str = ""
 
 
-class RawClassOffer(BaseModel):
+class ClassAvailability(BaseModel):
     travel_class: TravelClass
-    raw_availability: str
+    availability: ParsedAvailability
+    probability: float
     fare: int = -1
-    prediction_pct: int = -1
 
 
-class TrainBetweenBase(TrainIdentity):
+class TrainBetween(TrainIdentity):
     from_code: str
     from_name: str
     to_code: str
@@ -104,45 +110,16 @@ class TrainBetweenBase(TrainIdentity):
     has_pantry: bool = False
     distance_km: int = -1
     allowed_quotas: list[str] = []
+    general: list[ClassAvailability] = []
+    tatkal: list[ClassAvailability] = []
+    classes: list[ClassAvailability] = []
 
 
-class RawTrainBetween(TrainBetweenBase):
-    general_offers: list[RawClassOffer]
-    tatkal_offers: list[RawClassOffer]
-
-
-class ClassAvailability(BaseModel):
-    travel_class: TravelClass
-    availability: ParsedAvailability
-    probability: float
-    fare: int = -1
-
-
-class TrainBetween(TrainBetweenBase):
-    general: list[ClassAvailability]
-    tatkal: list[ClassAvailability]
-
-
-class JourneyContext(BaseModel):
+class TrainsBetweenResponse(BaseModel):
     source: str
     destination: str
     journey_date: dt.date
-
-
-class TrainsBetweenResponse(JourneyContext):
     trains: list[TrainBetween]
-
-
-class TrainQuotaClasses(BaseModel):
-    train_number: str
-    from_code: str
-    departure_time: str
-    classes: list[ClassAvailability]
-
-
-class TrainsQuotaAvailabilityResponse(JourneyContext):
-    quota: BookingQuota
-    trains: list[TrainQuotaClasses]
 
 
 class UserLeg(BaseModel):
@@ -191,7 +168,7 @@ class RecommendationResponse(BaseModel):
 
 class FetchDescriptor(BaseModel):
     url: str
-    headers: dict[str, str]
+    headers: dict[str, str] = Field(default_factory=dict)
     fetch_id: str
     method: str = "GET"
     body: str | None = None
@@ -229,15 +206,8 @@ class SeatFinderManifestRequest(BaseModel):
     require_connect: bool = True
 
 
-class StationPairDateRequest(BaseModel):
+class TrainSearchManifestRequest(BaseModel):
     source: str = Field(min_length=1, max_length=5)
     destination: str = Field(min_length=1, max_length=5)
     date: dt.date
-
-
-class TrainSearchManifestRequest(StationPairDateRequest):
-    pass
-
-
-class QuotaSearchManifestRequest(StationPairDateRequest):
-    quota: BookingQuota
+    quota: BookingQuota = BookingQuota.GENERAL

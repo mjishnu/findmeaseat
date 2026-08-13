@@ -50,8 +50,7 @@ class TypedRedisCache(Generic[T]):
         self.deserializer = deserializer
 
     def _key(self, *parts: Any) -> str:
-        # e.g. ("NDLS", "BCT", None) -> "seg:NDLS:BCT:_"
-        return f"{self.prefix}:" + ":".join(str(p) if p else "_" for p in parts)
+        return f"{self.prefix}:" + ":".join(str(p) for p in parts if p is not None)
 
     async def get(self, *parts: Any) -> T | None:
         raw = await get_redis().get(self._key(*parts))

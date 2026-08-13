@@ -1,27 +1,30 @@
-import time
-from uuid import uuid4
-from dataclasses import dataclass, field
 import datetime as dt
+import time
+from dataclasses import dataclass, field
+from uuid import uuid4
 
-from app.schemas import TrainRoute, StationStop, TravelClass, BookingQuota
+from app.schemas import BookingQuota, StationStop, TrainRoute, TravelClass
+
 
 @dataclass
 class ManifestEntry:
     created_at: float = 0.0
 
+
 # --- Route lookup ---
 @dataclass
 class RouteManifestEntry(ManifestEntry):
-    phase: str = "header"          # "header" → "route"
+    phase: str = "header"  # "header" → "route"
     train_number: str = ""
-    train_id: str | None = None    # set after header phase
+    train_id: str | None = None  # set after header phase
     train_no: str | None = None
     train_name: str | None = None
+
 
 # --- Seat finder ---
 @dataclass
 class SeatFinderEntry(ManifestEntry):
-    phase: str = "header"          # "header" → "route" → "fetch"
+    phase: str = "header"  # "header" → "route" → "fetch"
     train_number: str = ""
     user_source: str = ""
     user_destination: str = ""
@@ -47,26 +50,33 @@ class SeatFinderEntry(ManifestEntry):
     verify_alternatives: list[dict] | None = None
     verify_context: dict | None = None
 
+
 # --- Train search (general + quota) ---
 @dataclass
 class TrainSearchEntry(ManifestEntry):
     source: str = ""
     destination: str = ""
     journey_date: dt.date = field(default_factory=dt.date.today)
-    quota: BookingQuota | None = None  # None for general, set for LD/SS
+    quota: BookingQuota = BookingQuota.GENERAL
+
 
 class ManifestStore:
-    def __init__(self, ttl: float = 120.0, max_size: int = 1024):
+    def __init__(self, ttl: float = 300.0, max_size: int = 10000):
         self._store: dict[str, ManifestEntry] = {}
         self._ttl = ttl
         self._max_size = max_size
 
     def put(self, entry: ManifestEntry) -> str:
         now = time.monotonic()
-        self._store = {k: v for k, v in self._store.items() if now - v.created_at < self._ttl}
+        while self._store:
+            oldest_manifest_id = next(iter(self._store))
+            if now - self._store[oldest_manifest_id].created_at >= self._ttl:
+                del self._store[oldest_manifest_id]
+            else:
+                break
         if len(self._store) >= self._max_size:
-            oldest = min(self._store, key=lambda k: self._store[k].created_at)
-            del self._store[oldest]
+            oldest_manifest_id = next(iter(self._store))
+            del self._store[oldest_manifest_id]
         mid = uuid4().hex[:16]
         entry.created_at = now
         self._store[mid] = entry
@@ -79,3 +89,6 @@ class ManifestStore:
         if time.monotonic() - entry.created_at > self._ttl:
             return None
         return entry
+
+
+ManifestCache = ManifestStore()
