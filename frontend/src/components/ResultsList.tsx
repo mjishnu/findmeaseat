@@ -14,7 +14,7 @@ export function ResultsList({ data }: ResultsListProps) {
         <p className="font-ticket text-sm">
           <span className="text-paper-50/60">YOUR LEG · </span>
           {leg.source} ➝ {leg.destination} · {leg.distance_km} km
-          {leg.fare != null ? ` · ₹${leg.fare}` : ''}
+          {leg.fare > 0 ? ` · ₹${leg.fare}` : ''}
           <span className="text-paper-50/60"> · {data.travel_class}</span>
         </p>
         <div className="flex items-center gap-3">

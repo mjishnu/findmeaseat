@@ -30,19 +30,19 @@ def _clean(segment: str) -> list[str]:
 _NUM_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 
 
-def _to_int(value: str | int | float | None) -> int | None:
-    """Coerce a distance/fare ('120', '₹520', '1,245', -50) to int, else None."""
+def _to_int(value: str | int | float | None) -> int:
+    """Coerce a distance/fare ('120', '₹520', '1,245', -50) to int, else -1."""
     if value is None:
-        return None
+        return -1
     if isinstance(value, (int, float)):
         return int(round(value))
     m = _NUM_RE.search(str(value))
     if m is None:
-        return None
+        return -1
     try:
         return int(round(float(m.group().replace(",", ""))))
     except ValueError:
-        return None
+        return -1
 
 
 def parse_erail_header(body: str) -> tuple[str, str, str] | None:
@@ -66,7 +66,7 @@ def parse_erail_route(route_text: str) -> list[dict[str, Any]]:
         if len(det) < 10:
             continue
         distance = _to_int(det[6])
-        if distance is None:
+        if distance == -1:
             continue
         stops.append({"code": det[1], "name": det[2], "distance_km": distance})
     return stops

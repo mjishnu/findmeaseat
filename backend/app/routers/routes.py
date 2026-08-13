@@ -13,7 +13,7 @@ from app.core.manifest_store import (
     SeatFinderEntry,
     TrainSearchEntry,
 )
-from app.core.pairs import enumerate_covering_pairs, enumerate_partial_pairs
+from app.core.pairs import enumerate_pairs
 from app.dependencies import ManifestStoreDep, StationDirectoryDep
 from app.exceptions import ProviderUnavailableError, TrainNotFoundError
 from app.providers.irctc.client import (
@@ -42,7 +42,7 @@ from app.schemas import (
     TrainSearchManifestRequest,
     TrainsQuotaAvailabilityResponse,
 )
-from app.services.recommendations import RecommendationService
+from app.services.recommendations import build_verified_response, rank_candidates
 from app.services.train_search import to_class, to_train_between
 
 
@@ -137,12 +137,14 @@ async def seat_finder_manifest(
 
     cached_route = await RouteCache.get(body.train_number)
     if cached_route:
-        all_pairs = enumerate_covering_pairs(cached_route, source, destination)
-        if body.partial:
-            all_pairs = all_pairs + enumerate_partial_pairs(
-                cached_route, source, destination,
-                body.min_coverage_pct, body.require_connect,
-            )
+        all_pairs = enumerate_pairs(
+            cached_route,
+            source,
+            destination,
+            body.partial,
+            body.min_coverage_pct,
+            body.require_connect,
+        )
         pairs = []
         for b, a in all_pairs:
             if not await DeadPairCache.get(body.train_number, b.code, a.code):
@@ -188,7 +190,8 @@ async def seat_finder_manifest(
 
         if not fetches:
             provider = PreFetchedProvider(entry, cached_segs)
-            ranked_data = await RecommendationService(provider).rank_candidates(
+            ranked_data = await rank_candidates(
+                provider,
                 cached_route.train_number,
                 source,
                 destination,
@@ -212,15 +215,15 @@ async def seat_finder_manifest(
                         fetch_id=f"verify:{i}",
                     )
                 )
-            
+
             if not verify_fetches:
-                return RecommendationService(provider).build_verified_response(ranked_data)
+                return build_verified_response(ranked_data, {})
 
             entry.phase = "verify"
             entry.verify_candidates = ranked_data["candidates"]
             entry.verify_alternatives = ranked_data["alternatives"]
             entry.verify_context = ranked_data["context"]
-            
+
             mid = store.put(entry)
             return ManifestResponse(manifest_id=mid, fetches=verify_fetches)
 
@@ -280,14 +283,14 @@ async def seat_finder_process(body: ProcessRequest, store: ManifestStoreDep):
             stations=[StationStop(**s) for s in stops],
         )
         await RouteCache.put(entry.train_number, route)
-        all_pairs = enumerate_covering_pairs(
-            route, entry.user_source, entry.user_destination
+        all_pairs = enumerate_pairs(
+            route,
+            entry.user_source,
+            entry.user_destination,
+            entry.partial,
+            entry.min_coverage_pct,
+            entry.require_connect,
         )
-        if entry.partial:
-            all_pairs = all_pairs + enumerate_partial_pairs(
-                route, entry.user_source, entry.user_destination,
-                entry.min_coverage_pct, entry.require_connect,
-            )
         pairs = []
         for b, a in all_pairs:
             if not await DeadPairCache.get(entry.train_number, b.code, a.code):
@@ -322,7 +325,8 @@ async def seat_finder_process(body: ProcessRequest, store: ManifestStoreDep):
 
         if not fetches:
             provider = PreFetchedProvider(entry, cached_segs)
-            ranked_data = await RecommendationService(provider).rank_candidates(
+            ranked_data = await rank_candidates(
+                provider,
                 route.train_number,
                 entry.user_source,
                 entry.user_destination,
@@ -347,13 +351,13 @@ async def seat_finder_process(body: ProcessRequest, store: ManifestStoreDep):
                     )
                 )
             if not verify_fetches:
-                return RecommendationService(provider).build_verified_response(ranked_data)
+                return build_verified_response(ranked_data, {})
 
             entry.phase = "verify"
             entry.verify_candidates = ranked_data["candidates"]
             entry.verify_alternatives = ranked_data["alternatives"]
             entry.verify_context = ranked_data["context"]
-            
+
             mid = store.put(entry)
             return ManifestResponse(manifest_id=mid, fetches=verify_fetches)
 
@@ -411,7 +415,8 @@ async def seat_finder_process(body: ProcessRequest, store: ManifestStoreDep):
             parsed_segments.update(entry.cached_segments)
 
         provider = PreFetchedProvider(entry, parsed_segments)
-        ranked_data = await RecommendationService(provider).rank_candidates(
+        ranked_data = await rank_candidates(
+            provider,
             entry.route.train_number,
             entry.user_source,
             entry.user_destination,
@@ -436,52 +441,52 @@ async def seat_finder_process(body: ProcessRequest, store: ManifestStoreDep):
                 )
             )
         if not verify_fetches:
-            return RecommendationService(provider).build_verified_response(ranked_data)
+            return build_verified_response(ranked_data, {})
 
         entry.phase = "verify"
         entry.verify_candidates = ranked_data["candidates"]
         entry.verify_alternatives = ranked_data["alternatives"]
         entry.verify_context = ranked_data["context"]
-        
+
         mid = store.put(entry)
         return ManifestResponse(manifest_id=mid, fetches=verify_fetches)
 
     elif entry.phase == "verify":
         if entry.verify_candidates is None or entry.verify_context is None:
             raise HTTPException(500, "Missing verify candidates or context in entry")
-            
+
         fetch_group = (
             entry.quota.value
             if entry.quota in (BookingQuota.LADIES, BookingQuota.SENIOR)
             else None
         )
         date_str = format_date(entry.journey_date)
-        
+
         live_overrides = {}
-        
+
         for r in body.results:
             if r.status != 200 or not r.body:
                 continue
-            
+
             try:
                 idx = int(r.fetch_id.split(":")[1])
                 cand = entry.verify_candidates[idx]
             except (IndexError, ValueError):
                 continue
-                
+
             board = cand["board"]["code"]
             alight = cand["alight"]["code"]
             fetch_id = f"{board}|{alight}"
-            
+
             try:
                 payload = json.loads(r.body)
                 data = payload.get("data") if isinstance(payload, dict) else None
                 if not data:
                     continue
-                
+
                 avl_list = data.get("avlDayList", [])
                 fare_info = data.get("fareInfo", {})
-                
+
                 if avl_list and isinstance(avl_list, list):
                     live_day = avl_list[0]
                     live_status = live_day.get("availablityStatus")
@@ -491,10 +496,13 @@ async def seat_finder_process(body: ProcessRequest, store: ManifestStoreDep):
                         live_fare = int(round(live_fare))
                     else:
                         live_fare = None
-                    
+
                     from app.core.parser import parse_availability
-                    live_parsed = parse_availability(live_status) if live_status else None
-                    
+
+                    live_parsed = (
+                        parse_availability(live_status) if live_status else None
+                    )
+
                     if live_parsed:
                         live_overrides[fetch_id] = {
                             "availability": live_parsed,
@@ -502,26 +510,28 @@ async def seat_finder_process(body: ProcessRequest, store: ManifestStoreDep):
                         }
                         if live_prediction is not None:
                             try:
-                                live_overrides[fetch_id]["prediction_pct"] = int(live_prediction)
+                                live_overrides[fetch_id]["prediction_pct"] = int(
+                                    live_prediction
+                                )
                             except ValueError:
                                 pass
-                        
+
                         cached_parsed = cand.get("parsed", {}).get("status")
                         if live_parsed.status != cached_parsed:
-                            await SegmentCache.delete(board, alight, date_str, fetch_group)
+                            await SegmentCache.delete(
+                                board, alight, date_str, fetch_group
+                            )
 
             except (json.JSONDecodeError, AttributeError):
                 pass
-                
-        provider = PreFetchedProvider(entry, {}) 
-        
+
         ranked_data = {
             "candidates": entry.verify_candidates,
             "alternatives": entry.verify_alternatives,
-            "context": entry.verify_context
+            "context": entry.verify_context,
         }
-        
-        return RecommendationService(provider).build_verified_response(ranked_data, live_overrides)
+
+        return build_verified_response(ranked_data, live_overrides)
 
 
 # --- Train Search ---

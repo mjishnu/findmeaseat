@@ -9,8 +9,8 @@ interface SwitchSuggestionBannerProps {
   onSwitch: (travelClass: TravelClass, quota: BookingQuota) => void
 }
 
-function formatDelta(delta: number | null): string {
-  if (delta == null) return ''
+function formatDelta(delta: number): string {
+  if (delta < 0) return ''
   if (delta === 0) return 'same fare'
   return delta > 0 ? `+₹${delta}` : `−₹${Math.abs(delta)}`
 }

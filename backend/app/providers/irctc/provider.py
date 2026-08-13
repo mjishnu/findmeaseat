@@ -6,15 +6,10 @@ normalization, so one weird upstream string degrades to UNKNOWN rather than
 breaking the search.
 """
 
-import datetime as dt
-
 from app.providers.irctc import client as irctc_client
 from app.schemas import (
-    BookingQuota,
     RawClassOffer,
     RawTrainBetween,
-    StationStop,
-    TrainRoute,
     TravelClass,
 )
 

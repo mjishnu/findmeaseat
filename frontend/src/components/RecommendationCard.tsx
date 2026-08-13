@@ -127,10 +127,10 @@ export function RecommendationCard({
           <div>
             <dt className="sr-only">Fare</dt>
             <dd className="font-ticket font-semibold text-rail-950">
-              {rec.fare != null ? `₹${rec.fare}` : 'Fare n/a'}
+              {rec.fare > 0 ? `₹${rec.fare}` : 'Fare n/a'}
             </dd>
           </div>
-          {rec.extra_fare != null && rec.extra_fare > 0 && (
+          {rec.extra_fare > 0 && (
             <div>
               <dt className="sr-only">Extra fare</dt>
               <dd className="text-signal-amber-deep">+₹{rec.extra_fare} vs direct</dd>
