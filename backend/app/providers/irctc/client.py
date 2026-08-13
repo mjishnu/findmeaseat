@@ -6,6 +6,7 @@
 These are third-party aggregators. The browser fetches them directly, and the
 server only builds the URLs and parses the results.
 """
+
 import datetime as dt
 import re
 from typing import Any
@@ -30,17 +31,17 @@ def _clean(segment: str) -> list[str]:
 _NUM_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 
 
-def _to_int(value: str | int | float | None) -> int:
+def _to_int(value: str | float | None) -> int:
     """Coerce a distance/fare ('120', '₹520', '1,245', -50) to int, else -1."""
     if value is None:
         return -1
     if isinstance(value, (int, float)):
-        return int(round(value))
+        return int(round(value))  # noqa: RUF046
     m = _NUM_RE.search(str(value))
     if m is None:
         return -1
     try:
-        return int(round(float(m.group().replace(",", ""))))
+        return int(round(float(m.group().replace(",", ""))))  # noqa: RUF046
     except ValueError:
         return -1
 
@@ -72,37 +73,54 @@ def parse_erail_route(route_text: str) -> list[dict[str, Any]]:
     return stops
 
 
-_BROWSER_HEADERS: dict[str, str] = {} # Browser will automatically set User-Agent
-
 def build_erail_header_descriptor(train_number: str) -> FetchDescriptor:
-    params = urlencode({"TrainNo": train_number, "DataSource": 0, "Language": 0, "Cache": "true"})
-    return FetchDescriptor(url=f"{ERAIL_GET_TRAINS}?{params}",
-                           headers=_BROWSER_HEADERS, fetch_id="erail_header")
+    params = urlencode(
+        {"TrainNo": train_number, "DataSource": 0, "Language": 0, "Cache": "true"}
+    )
+    return FetchDescriptor(url=f"{ERAIL_GET_TRAINS}?{params}", fetch_id="erail_header")
 
 
 def build_erail_route_descriptor(train_id: str) -> FetchDescriptor:
-    params = urlencode({"Action": "TRAINROUTE", "Password": 2012,
-                        "Data1": train_id, "Data2": 0, "Cache": "true"})
-    return FetchDescriptor(url=f"{ERAIL_DATA}?{params}",
-                           headers=_BROWSER_HEADERS, fetch_id="erail_route")
+    params = urlencode(
+        {
+            "Action": "TRAINROUTE",
+            "Password": 2012,
+            "Data1": train_id,
+            "Data2": 0,
+            "Cache": "true",
+        }
+    )
+    return FetchDescriptor(url=f"{ERAIL_DATA}?{params}", fetch_id="erail_route")
 
 
 def build_confirmtkt_descriptor(
-    source: str, destination: str, date: dt.date, quota: BookingQuota, fetch_id: str,
+    source: str,
+    destination: str,
+    date: dt.date,
+    quota: BookingQuota,
+    fetch_id: str,
 ) -> FetchDescriptor:
     params = {
-        "sourceStationCode": source, "destinationStationCode": destination,
-        "dateOfJourney": format_date(date), "addAvailabilityCache": "true",
-        "excludeMultiTicketAlternates": "false", "excludeBoostAlternates": "false",
-        "sortBy": "DEFAULT", "enableNearby": "true", "enableTG": "true",
-        "tGPlan": "CTG-3", "showTGPrediction": "false",
-        "tgColor": "DEFAULT", "showPredictionGlobal": "true",
+        "sourceStationCode": source,
+        "destinationStationCode": destination,
+        "dateOfJourney": format_date(date),
+        "addAvailabilityCache": "true",
+        "excludeMultiTicketAlternates": "false",
+        "excludeBoostAlternates": "false",
+        "sortBy": "DEFAULT",
+        "enableNearby": "true",
+        "enableTG": "true",
+        "tGPlan": "CTG-3",
+        "showTGPrediction": "false",
+        "tgColor": "DEFAULT",
+        "showPredictionGlobal": "true",
     }
     # quota= param is required for LD/SS; GN/TQ are bundled without it.
     if quota in (BookingQuota.LADIES, BookingQuota.SENIOR):
         params["quota"] = quota.value
-    return FetchDescriptor(url=f"{CONFIRMTKT_SEARCH}?{urlencode(params)}",
-                           headers=_BROWSER_HEADERS, fetch_id=fetch_id)
+    return FetchDescriptor(
+        url=f"{CONFIRMTKT_SEARCH}?{urlencode(params)}", fetch_id=fetch_id
+    )
 
 
 def build_availability_descriptor(
@@ -132,7 +150,6 @@ def build_availability_descriptor(
     }
     return FetchDescriptor(
         url=f"{CONFIRMTKT_AVAILABILITY}?{urlencode(params)}",
-        headers=_BROWSER_HEADERS,
         fetch_id=fetch_id,
         method="POST",
     )

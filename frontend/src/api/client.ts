@@ -389,6 +389,7 @@ export interface TrainBetween {
   distance_km: number
   general: ClassAvailability[]
   tatkal: ClassAvailability[]
+  classes: ClassAvailability[]
   allowed_quotas: string[]
 }
 
@@ -397,21 +398,6 @@ export interface TrainsBetweenResponse {
   destination: string
   journey_date: string
   trains: TrainBetween[]
-}
-
-export interface TrainQuotaClasses {
-  train_number: string
-  from_code: string
-  departure_time: string
-  classes: ClassAvailability[]
-}
-
-export interface TrainsQuotaAvailabilityResponse {
-  source: string
-  destination: string
-  journey_date: string
-  quota: BookingQuota
-  trains: TrainQuotaClasses[]
 }
 
 export function searchStations(q: string, signal?: AbortSignal): Promise<Station[]> {
@@ -423,10 +409,11 @@ export function searchTrainsBetween(
   source: string,
   destination: string,
   date: string, // YYYY-MM-DD
+  quota: BookingQuota = 'GN',
   signal?: AbortSignal,
 ): Promise<TrainsBetweenResponse> {
   return executeManifest('/api/trains-between/manifest', '/api/trains-between/process',
-    { source, destination, date }, signal)
+    { source, destination, date, quota }, signal)
 }
 
 export function searchTrainsQuotaAvailability(
@@ -435,7 +422,6 @@ export function searchTrainsQuotaAvailability(
   date: string, // YYYY-MM-DD
   quota: BookingQuota,
   signal?: AbortSignal,
-): Promise<TrainsQuotaAvailabilityResponse> {
-  return executeManifest('/api/trains-between/quota/manifest', '/api/trains-between/quota/process',
-    { source, destination, date, quota }, signal)
+): Promise<TrainsBetweenResponse> {
+  return searchTrainsBetween(source, destination, date, quota, signal)
 }
