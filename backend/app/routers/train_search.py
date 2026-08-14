@@ -1,9 +1,8 @@
-import json
-
 from fastapi import APIRouter, HTTPException
 
 from app.core.dates import validate_journey_date
 from app.core.manifest_store import ManifestCache, TrainSearchEntry
+from app.core.parser import extract_json_data
 from app.core.redis import SegmentCache
 from app.providers.irctc.client import build_confirmtkt_descriptor, format_date
 from app.providers.irctc.provider import build_trains_between
@@ -18,7 +17,7 @@ from app.schemas import (
 router = APIRouter(route_class=GzipRoute)
 
 
-@router.post("/manifest", response_model=TrainsBetweenResponse | ManifestResponse)
+@router.post("/manifest", response_model=ManifestResponse | TrainsBetweenResponse)
 async def trains_between_manifest(body: TrainSearchManifestRequest):
     validate_journey_date(body.date)
     source = body.source.strip().upper()
@@ -26,8 +25,8 @@ async def trains_between_manifest(body: TrainSearchManifestRequest):
     date_str = format_date(body.date)
     fetch_group = body.quota.fetch_group
 
-    cached = await SegmentCache.get(source, destination, date_str, fetch_group)
-    if cached is not None:
+    cached = await SegmentCache.get_all(source, destination, date_str, fetch_group)
+    if cached:
         return TrainsBetweenResponse(
             source=source,
             destination=destination,
@@ -61,23 +60,26 @@ async def trains_between_process(body: ProcessRequest):
     r = body.results[0]
     train_list: list[dict] = []
     if r.status == 200 and r.body:
-        try:
-            payload = json.loads(r.body)
-            if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
-                train_list = payload["data"].get("trainList", [])
-        except (json.JSONDecodeError, AttributeError):
-            pass
+        data = extract_json_data(r.body)
+        if data:
+            train_list = data.get("trainList", [])
 
     fetch_group = entry.quota.fetch_group
 
     if train_list:
-        await SegmentCache.put(
-            entry.source,
-            entry.destination,
-            format_date(entry.journey_date),
-            fetch_group,
-            train_list,
-        )
+        mapping = {
+            str(t["trainNumber"]): t
+            for t in train_list
+            if isinstance(t, dict) and "trainNumber" in t
+        }
+        if mapping:
+            await SegmentCache.put_many(
+                entry.source,
+                entry.destination,
+                format_date(entry.journey_date),
+                fetch_group,
+                mapping,
+            )
 
     return TrainsBetweenResponse(
         source=entry.source,

@@ -1,7 +1,5 @@
 import asyncio
-import datetime as dt
 
-from app.core.parser import parse_availability
 from app.core.ranking import confirmation_probability, sort_candidates
 from app.exceptions import ProviderUnavailableError
 from app.providers.base import RailDataProvider
@@ -22,20 +20,17 @@ MAX_ALTERNATIVES = 3
 
 async def evaluate_pair(
     provider: RailDataProvider,
-    train_number: str,
     board: StationStop,
     alight: StationStop,
     km: dict[str, int],
     user_leg_km: int,
     user_leg_fare: int,
-    journey_date: dt.date,
     travel_class: TravelClass,
     quota: BookingQuota = BookingQuota.GENERAL,
 ) -> Candidate | None:
-    raw = await provider.get_seat_status(
-        train_number, board.code, alight.code, journey_date, travel_class, quota
+    parsed = await provider.get_seat_status(
+        board.code, alight.code, travel_class, quota
     )
-    parsed = parse_availability(raw)
     if parsed.status in (
         AvailabilityStatus.NOT_BOOKABLE,
         AvailabilityStatus.UNKNOWN,
@@ -43,11 +38,9 @@ async def evaluate_pair(
         return None
 
     extra_km = max(0, km[alight.code] - km[board.code] - user_leg_km)
-    fare = await provider.get_fare(
-        train_number, board.code, alight.code, journey_date, travel_class, quota
-    )
+    fare = await provider.get_fare(board.code, alight.code, travel_class, quota)
     prediction = await provider.get_seat_prediction(
-        train_number, board.code, alight.code, journey_date, travel_class, quota
+        board.code, alight.code, travel_class, quota
     )
     extra_fare = fare - user_leg_fare
     probability = confirmation_probability(parsed, prediction)
@@ -64,33 +57,27 @@ async def evaluate_pair(
 
 async def evaluate_class(
     provider: RailDataProvider,
-    train_number: str,
     pairs: list[tuple[StationStop, StationStop]],
     source: str,
     destination: str,
     km: dict[str, int],
     user_leg_km: int,
-    journey_date: dt.date,
     travel_class: TravelClass,
     quota: BookingQuota = BookingQuota.GENERAL,
 ) -> tuple[list[Candidate], ParsedAvailability | None, int, int]:
     """Evaluate one (class, quota) cell across every covering pair
     (concurrently) and return (candidates, direct-leg status, skipped count, direct fare).
     """
-    user_leg_fare = await provider.get_fare(
-        train_number, source, destination, journey_date, travel_class, quota
-    )
+    user_leg_fare = await provider.get_fare(source, destination, travel_class, quota)
     raw_results = await asyncio.gather(
         *(
             evaluate_pair(
                 provider,
-                train_number,
                 board,
                 alight,
                 km,
                 user_leg_km,
                 user_leg_fare,
-                journey_date,
                 travel_class,
                 quota,
             )
@@ -123,13 +110,11 @@ async def evaluate_class(
 
 async def build_better_alternatives(
     provider: RailDataProvider,
-    train_number: str,
     pairs: list[tuple[StationStop, StationStop]],
     source: str,
     destination: str,
     km: dict[str, int],
     user_leg_km: int,
-    journey_date: dt.date,
     searched_class: TravelClass,
     searched_quota: BookingQuota,
     searched_best_key: tuple | None,
@@ -138,28 +123,20 @@ async def build_better_alternatives(
     """Build a list of better alternative classes than the current in the same quota (SL in WL10 vs 3A in AVL5)."""
     alternatives: list[SwitchAlternative] = []
     try:
-        offered = await provider.get_train_classes(
-            train_number, source, destination, journey_date, searched_quota
-        )
+        offered = await provider.get_train_classes(source, destination, searched_quota)
     except ProviderUnavailableError:
         return alternatives
-    for code in offered:
-        try:
-            tc = TravelClass(code)
-        except ValueError:
-            continue  # a class our enum doesn't model
+    for tc in offered:
         if tc == searched_class:
             continue  # skip the class the user already searched
         try:
             candidates, _parsed, _skipped, _cell_fare = await evaluate_class(
                 provider,
-                train_number,
                 pairs,
                 source,
                 destination,
                 km,
                 user_leg_km,
-                journey_date,
                 tc,
                 searched_quota,
             )

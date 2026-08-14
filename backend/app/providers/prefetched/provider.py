@@ -1,63 +1,85 @@
 from app.core.manifest_store import SeatFinderEntry
-from app.providers.irctc.client import _to_int, cache_key, class_cache
-from app.schemas import BookingQuota, TrainRoute
+from app.core.parser import parse_availability
+from app.providers.base import RailDataProvider
+from app.providers.irctc.client import _to_int, quota_cache_key, quota_class_cache
+from app.schemas import BookingQuota, ParsedAvailability, TrainRoute, TravelClass
 
 
-class PreFetchedProvider:
-    """RailDataProvider that reads from pre-parsed confirmtkt trainList dicts.
-    Data may come from browser fetches, segment cache, or both.
-
-    The frontend pre-filters each trainList to only the target train, so
-    _get_train just takes the first element from the list."""
+class PreFetchedProvider(RailDataProvider):
+    """RailDataProvider that reads from pre-parsed confirmtkt train dicts."""
 
     def __init__(
         self,
         entry: SeatFinderEntry,
-        parsed_segments: dict[str, list[dict]],  # fetch_id -> trainList
+        parsed_segments: dict[str, dict],  # fetch_id -> train dict
     ) -> None:
         self._entry = entry
         self._parsed = parsed_segments
 
-    def _get_train(self, source: str, destination: str) -> dict | None:
-        """Return the (single) train dict for this segment, or None."""
-        trains = self._parsed.get(f"{source}|{destination}", [])
-        return trains[0] if trains else None
-
-    async def get_route(self, train_number: str) -> TrainRoute | None:
+    async def get_route(self) -> TrainRoute | None:
         return self._entry.route
 
-    async def get_seat_status(self, train_number, source, destination,
-                               journey_date, travel_class,
-                               quota=BookingQuota.GENERAL) -> str:
-        train = self._get_train(source, destination)
+    async def get_seat_status(
+        self,
+        source: str,
+        destination: str,
+        travel_class: TravelClass,
+        quota: BookingQuota = BookingQuota.GENERAL,
+    ) -> ParsedAvailability:
+        train = self._parsed.get(f"{source}|{destination}")
         if train is None:
-            return "NOT AVAILABLE"
-        cache_entry = class_cache(train, travel_class.value, quota)
-        display = cache_entry.get("availability") or cache_entry.get("availabilityDisplayName")
-        return display or "NOT AVAILABLE"
+            return parse_availability("NOT AVAILABLE")
+        cache_entry = quota_class_cache(train, travel_class.value, quota)
+        display = cache_entry.get("availability") or cache_entry.get(
+            "availabilityDisplayName"
+        )
+        return parse_availability(display or "NOT AVAILABLE")
 
-    async def get_fare(self, train_number, source, destination,
-                        journey_date, travel_class,
-                        quota=BookingQuota.GENERAL) -> int:
-        train = self._get_train(source, destination)
+    async def get_fare(
+        self,
+        source: str,
+        destination: str,
+        travel_class: TravelClass,
+        quota: BookingQuota = BookingQuota.GENERAL,
+    ) -> int:
+        train = self._parsed.get(f"{source}|{destination}")
         if train is None:
             return -1
-        return _to_int(class_cache(train, travel_class.value, quota).get("fare"))
+        return _to_int(quota_class_cache(train, travel_class.value, quota).get("fare"))
 
-    async def get_seat_prediction(self, train_number, source, destination,
-                                    journey_date, travel_class,
-                                    quota=BookingQuota.GENERAL) -> int:
-        train = self._get_train(source, destination)
+    async def get_seat_prediction(
+        self,
+        source: str,
+        destination: str,
+        travel_class: TravelClass,
+        quota: BookingQuota = BookingQuota.GENERAL,
+    ) -> int:
+        train = self._parsed.get(f"{source}|{destination}")
         if train is None:
             return -1
-        return _to_int(class_cache(train, travel_class.value, quota).get("predictionPercentage"))
+        return _to_int(
+            quota_class_cache(train, travel_class.value, quota).get(
+                "predictionPercentage"
+            )
+        )
 
-    async def get_train_classes(self, train_number, source, destination,
-                                 journey_date,
-                                 quota=BookingQuota.GENERAL) -> list[str]:
-        train = self._get_train(source, destination)
+    async def get_train_classes(
+        self,
+        source: str,
+        destination: str,
+        quota: BookingQuota = BookingQuota.GENERAL,
+    ) -> list[TravelClass]:
+        train = self._parsed.get(f"{source}|{destination}")
         if train is None:
             return []
-        cache = train.get(cache_key(quota)) or {}
-        return [code for code, entry in cache.items()
-                if isinstance(entry, dict) and (entry.get("availability") or entry.get("availabilityDisplayName"))]
+        cache = train.get(quota_cache_key(quota)) or {}
+        classes: list[TravelClass] = []
+        for code, entry in cache.items():
+            if isinstance(entry, dict) and (
+                entry.get("availability") or entry.get("availabilityDisplayName")
+            ):
+                try:
+                    classes.append(TravelClass(code))
+                except ValueError:
+                    continue
+        return classes

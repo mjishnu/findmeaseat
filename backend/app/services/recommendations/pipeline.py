@@ -43,7 +43,7 @@ async def rank_candidates(
     destination = user_destination.strip().upper()
     validate_journey_date(journey_date)
 
-    route = await provider.get_route(train_number)
+    route = await provider.get_route()
     if route is None:
         raise TrainNotFoundError(train_number)
 
@@ -60,13 +60,11 @@ async def rank_candidates(
         user_leg_fare,
     ) = await evaluate_class(
         provider,
-        train_number,
         pairs,
         source,
         destination,
         km,
         user_leg_km,
-        journey_date,
         travel_class,
         quota,
     )
@@ -89,13 +87,11 @@ async def rank_candidates(
     # build alternative in other classes
     alternatives = await build_better_alternatives(
         provider,
-        train_number,
         pairs,
         source,
         destination,
         km,
         user_leg_km,
-        journey_date,
         travel_class,
         quota,
         chosen_best_key,

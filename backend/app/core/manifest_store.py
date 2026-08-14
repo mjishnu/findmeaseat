@@ -17,14 +17,13 @@ class RouteManifestEntry(ManifestEntry):
     phase: str = "header"  # "header" → "route"
     train_number: str = ""
     train_id: str | None = None  # set after header phase
-    train_no: str | None = None
     train_name: str | None = None
 
 
 # --- Seat finder ---
 @dataclass
 class SeatFinderEntry(ManifestEntry):
-    phase: str = "header"  # "header" → "route" → "fetch"
+    phase: str = "fetch"  # "fetch" → "verify"
     train_number: str = ""
     user_source: str = ""
     user_destination: str = ""
@@ -37,18 +36,17 @@ class SeatFinderEntry(ManifestEntry):
     require_connect: bool = True
     # Set after header phase
     train_id: str | None = None
-    train_no: str | None = None
     train_name: str | None = None
     # Set after route phase
     route: TrainRoute | None = None
-    pairs: list[tuple[StationStop, StationStop]] | None = None
-    fetch_id_to_pair: dict[str, tuple[StationStop, StationStop]] | None = None
+    pairs: list[tuple[StationStop, StationStop]] = field(default_factory=list)
+    fetch_id_to_pair: dict[str, tuple[StationStop, StationStop]] = field(default_factory=dict)
     # Segment-cached confirmtkt data for pairs that didn't need browser fetching
-    cached_segments: dict[str, list[dict]] | None = None
+    cached_segments: dict[str, dict] = field(default_factory=dict)
     # Set after fetch phase — carried into verify phase
-    verify_candidates: list[dict] | None = None
-    verify_alternatives: list[dict] | None = None
-    verify_context: dict | None = None
+    verify_candidates: list[dict] = field(default_factory=list)
+    verify_alternatives: list[dict] = field(default_factory=list)
+    verify_context: dict = field(default_factory=dict)
 
 
 # --- Train search (general + quota) ---

@@ -342,21 +342,42 @@ export interface SearchQuery {
   requireConnect?: boolean
 }
 
-export function findOptimalRoute(
+export async function findOptimalRoute(
   query: SearchQuery,
   signal?: AbortSignal,
 ): Promise<RecommendationResponse> {
-  return executeManifest('/api/seat-finder/manifest', '/api/seat-finder/process', {
-    train_number: query.trainNumber,
-    user_source: query.source,
-    user_destination: query.destination,
-    date: query.date,
-    travel_class: query.travelClass,
-    quota: query.quota,
-    partial: query.partial ?? false,
-    min_coverage_pct: query.minCoveragePct ?? 0.75,
-    require_connect: query.requireConnect ?? true,
-  }, signal, query.trainNumber)
+  const execute = () =>
+    executeManifest<RecommendationResponse>(
+      '/api/seat-finder/manifest',
+      '/api/seat-finder/process',
+      {
+        train_number: query.trainNumber,
+        user_source: query.source,
+        user_destination: query.destination,
+        date: query.date,
+        travel_class: query.travelClass,
+        quota: query.quota,
+        partial: query.partial ?? false,
+        min_coverage_pct: query.minCoveragePct ?? 0.75,
+        require_connect: query.requireConnect ?? true,
+      },
+      signal,
+      query.trainNumber,
+    )
+
+  try {
+    return await execute()
+  } catch (err) {
+    if (
+      err instanceof ApiError &&
+      err.status === 404 &&
+      err.message.toLowerCase().includes('not found')
+    ) {
+      await getTrainRoute(query.trainNumber, signal)
+      return await execute()
+    }
+    throw err
+  }
 }
 
 // --- Train search (between stations) -----------------------------------------

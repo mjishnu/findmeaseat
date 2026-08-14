@@ -80,7 +80,10 @@ def test_build_verified_response():
             {
                 "board": {"code": "SNDD", "name": "Sanpada", "distance_km": 10},
                 "alight": {"code": "VSH", "name": "Vashi", "distance_km": 20},
-                "parsed": {"raw": "AVAILABLE 5", "status": AvailabilityStatus.AVAILABLE},
+                "parsed": {
+                    "raw": "AVAILABLE 5",
+                    "status": AvailabilityStatus.AVAILABLE,
+                },
                 "probability": 0.9,
                 "extra_km": 0,
                 "fare": 50,
@@ -99,3 +102,33 @@ def test_build_verified_response():
     assert len(res.recommendations) == 1
     assert res.recommendations[0].book_from == "SNDD"
     assert res.recommendations[0].book_to == "VSH"
+
+
+def test_parse_verify_result():
+    from app.routers.seat_finder import _parse_verify_result
+
+    # Valid payload
+    payload = {
+        "data": {
+            "avlDayList": [
+                {
+                    "availablityStatus": "AVAILABLE 10",
+                    "predictionPercentage": "85",
+                }
+            ],
+            "fareInfo": {"totalFare": 150.7},
+        }
+    }
+    import json
+
+    res = _parse_verify_result(json.dumps(payload))
+    assert res is not None
+    assert res["availability"].raw == "AVL 10"
+    assert res["fare"] == 151
+    assert res["prediction_pct"] == 85
+
+    # Invalid / empty payloads return None
+    assert _parse_verify_result("invalid json") is None
+    assert _parse_verify_result("{}") is None
+    assert _parse_verify_result(json.dumps({"data": {}})) is None
+
