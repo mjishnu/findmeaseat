@@ -81,6 +81,68 @@ class FlagCache(TypedRedisCache[str]):
         await get_redis().set(self._key(*parts), "1", ex=self.ttl)
 
 
+# ── Hash redis cache ─────────────────────────────────────────────
+
+
+class HashRedisCache(Generic[T]):
+    """Redis Hash cache mapping sub-keys (e.g. train_number) to typed values."""
+
+    def __init__(
+        self,
+        prefix: str,
+        ttl: int,
+        serializer: Callable[[T], str] = json.dumps,
+        deserializer: Callable[[str], T] = json.loads,
+    ):
+        self.prefix = prefix
+        self.ttl = ttl
+        self.serializer = serializer
+        self.deserializer = deserializer
+
+    def _key(self, *parts: Any) -> str:
+        return f"{self.prefix}:" + ":".join(str(p) for p in parts if p is not None)
+
+    async def get_all(self, *parts: Any) -> list[T]:
+        """Fetch all fields from the hash as a list of deserialized values."""
+        raw_map = await get_redis().hgetall(self._key(*parts))
+        if not raw_map:
+            return []
+        return [self.deserializer(v) for v in raw_map.values()]
+
+    async def get_field(self, *parts_and_field: Any) -> T | None:
+        """Fetch a single field from the hash."""
+        *parts, field = parts_and_field
+        raw = await get_redis().hget(self._key(*parts), str(field))
+        return self.deserializer(raw) if raw is not None else None
+
+    async def put_field(self, *parts_field_value: Any) -> None:
+        """Set a single field in the hash and refresh key TTL."""
+        *parts, field, value = parts_field_value
+        key = self._key(*parts)
+        pipe = get_redis().pipeline()
+        pipe.hset(key, str(field), self.serializer(value))
+        pipe.expire(key, self.ttl)
+        await pipe.execute()
+
+    async def put_many(self, *parts_and_mapping: Any) -> None:
+        """Set multiple fields in the hash at once and refresh key TTL."""
+        *parts, mapping = parts_and_mapping
+        if not mapping:
+            return
+        key = self._key(*parts)
+        serialized_map = {str(k): self.serializer(v) for k, v in mapping.items()}
+        pipe = get_redis().pipeline()
+        pipe.hset(key, mapping=serialized_map)
+        pipe.expire(key, self.ttl)
+        await pipe.execute()
+
+    async def delete(self, *parts: Any) -> None:
+        await get_redis().delete(self._key(*parts))
+
+    async def exists(self, *parts: Any) -> bool:
+        return await get_redis().exists(self._key(*parts)) > 0
+
+
 # ── Cache instances ──────────────────────────────────────────────
 
 RouteCache = TypedRedisCache[TrainRoute](
@@ -90,7 +152,7 @@ RouteCache = TypedRedisCache[TrainRoute](
     deserializer=TrainRoute.model_validate_json,
 )
 
-SegmentCache = TypedRedisCache[list[dict]](
+SegmentCache = HashRedisCache[dict](
     prefix="seg",
     ttl=3 * 3600,
 )

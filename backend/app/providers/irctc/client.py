@@ -46,8 +46,8 @@ def _to_int(value: str | float | None) -> int:
         return -1
 
 
-def parse_erail_header(body: str) -> tuple[str, str, str] | None:
-    """Parse erail getTrains response → (train_id, train_no, train_name),
+def parse_erail_header(body: str) -> tuple[str, str] | None:
+    """Parse erail getTrains response → (train_id, train_name),
     or None if train not found."""
     if "train not found" in body.lower():
         return None
@@ -56,7 +56,7 @@ def parse_erail_header(body: str) -> tuple[str, str, str] | None:
     if len(d1[1]) > 6:
         d1 = d1[1:]
     d2 = _clean(segs[1])
-    return d2[12], d1[1].replace("^", ""), d1[2]
+    return d2[12], d1[2]
 
 
 def parse_erail_route(route_text: str) -> list[dict[str, Any]]:
@@ -155,8 +155,6 @@ def build_availability_descriptor(
     )
 
 
-# confirmtkt cache key per quota: GN/TQ are bundled on the train object; LD/SS land
-# in a single availabilityCacheForQuota filled by a quota=-parameterised search.
 _QUOTA_CACHE_KEY = {
     BookingQuota.GENERAL: "availabilityCache",
     BookingQuota.TATKAL: "availabilityCacheTatkal",
@@ -165,18 +163,16 @@ _QUOTA_CACHE_KEY = {
 }
 
 
-def cache_key(quota: BookingQuota) -> str:
-    """The confirmtkt train-dict key holding this quota's per-class cache."""
+def quota_cache_key(quota: BookingQuota) -> str:
+    """The cache key for one class in `quota`"""
     return _QUOTA_CACHE_KEY[quota]
 
 
-def class_cache(
+def quota_class_cache(
     train: dict, class_code: str, quota: BookingQuota = BookingQuota.GENERAL
 ) -> dict:
-    """The availability cache entry for one class in `quota`, or {}. Defaults to
-    the general cache; Tatkal reads the bundled `availabilityCacheTatkal`; LD/SS
-    read `availabilityCacheForQuota` (filled by a quota=-parameterised search)."""
-    cache = train.get(cache_key(quota)) or {}
+    """The cache entry for one class in `quota`"""
+    cache = train.get(quota_cache_key(quota)) or {}
     return cache.get(class_code) or {}
 
 

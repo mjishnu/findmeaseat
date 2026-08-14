@@ -1,12 +1,14 @@
-"""Normalize the many real-world availability string formats into one model.
+"""Centralized parsing utilities for IRCTC / confirmtkt response payloads.
 
-IRCTC native: "AVAILABLE-0044", "GNWL15/WL10". PNR pages / aggregators:
-"AVL 44", "GNWL 15/WL 10". Parsing is case-, whitespace-, hyphen- and
-zero-padding-insensitive. Unrecognized input degrades to UNKNOWN rather
-than raising — one weird string from a future scraper must not kill a
-whole search.
+Covers:
+- Availability-string normalisation (IRCTC native & aggregator formats)
+- JSON payload extraction (confirmtkt envelope → data dict)
+- Live-verify response parsing (availability + fare + prediction)
+
+Unrecognized input degrades gracefully rather than raising.
 """
 
+import json
 import re
 
 from app.schemas import AvailabilityStatus, ParsedAvailability
@@ -62,7 +64,9 @@ def parse_availability(raw: str) -> ParsedAvailability:
 
     if m := _WL_RE.match(text):
         current = int(m.group(1))
-        return ParsedAvailability(raw=f"WL {current}", status=AvailabilityStatus.WAITLIST)
+        return ParsedAvailability(
+            raw=f"WL {current}", status=AvailabilityStatus.WAITLIST
+        )
 
     if m := _WL_RAC_RE.match(text):
         current = int(m.group(1))
@@ -71,6 +75,52 @@ def parse_availability(raw: str) -> ParsedAvailability:
     # Bare "WL 7" (some aggregators) — general series by convention.
     if m := _BARE_WL_RE.match(text):
         current = int(m.group(1))
-        return ParsedAvailability(raw=f"WL {current}", status=AvailabilityStatus.WAITLIST)
+        return ParsedAvailability(
+            raw=f"WL {current}", status=AvailabilityStatus.WAITLIST
+        )
 
     return ParsedAvailability(raw=raw, status=AvailabilityStatus.UNKNOWN)
+
+
+def extract_json_data(body_str: str) -> dict | None:
+    try:
+        payload = json.loads(body_str)
+        if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+            return payload["data"]
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def parse_verify_result(body_str: str) -> dict | None:
+    """Parse an IRCTC live-availability response into availability/fare/prediction.
+
+    Returns a dict with 'availability', 'fare', and optional 'prediction_pct',
+    or None if the payload is invalid or missing availability info.
+    """
+    data = extract_json_data(body_str)
+    if not data:
+        return None
+
+    try:
+        live_day = data["avlDayList"][0]
+        live_status = live_day["availablityStatus"]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+    if not live_status:
+        return None
+
+    fare_info = data.get("fareInfo")
+    fare = fare_info.get("totalFare") if isinstance(fare_info, dict) else None
+
+    result: dict = {
+        "availability": parse_availability(live_status),
+        "fare": int(round(fare)) if isinstance(fare, (int, float)) else None,  # noqa: RUF046
+    }
+
+    try:
+        result["prediction_pct"] = int(live_day["predictionPercentage"])
+    except (KeyError, ValueError, TypeError):
+        pass
+
+    return result

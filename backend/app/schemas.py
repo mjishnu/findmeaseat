@@ -44,6 +44,9 @@ class BookingQuota(str, Enum):
 
     @property
     def fetch_group(self) -> str | None:
+        """
+        Whether to fetch the GN/Tatkal (None) or Ladies/Senior (BookingQuota)
+        """
         if self in (BookingQuota.LADIES, BookingQuota.SENIOR):
             return self.value
         return None

@@ -48,14 +48,11 @@ async def route_process(body: ProcessRequest):
         parsed = parse_erail_header(result.body)
         if parsed is None:
             raise TrainNotFoundError(entry.train_number)
-        train_id, train_no, train_name = parsed
+        entry.train_id, entry.train_name = parsed
         entry.phase = "route"
-        entry.train_id = train_id
-        entry.train_no = train_no
-        entry.train_name = train_name
         mid = ManifestCache.put(entry)
         return ManifestResponse(
-            manifest_id=mid, fetches=[build_erail_route_descriptor(train_id)]
+            manifest_id=mid, fetches=[build_erail_route_descriptor(entry.train_id)]
         )
 
     elif entry.phase == "route":

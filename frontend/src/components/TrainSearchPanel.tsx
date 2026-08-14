@@ -51,7 +51,7 @@ export function TrainSearchPanel({ onDeepLink }: TrainSearchPanelProps) {
     setState({ status: 'loading' })
     setQuotaCache({}) // a new route/date invalidates lazily-fetched quotas
     try {
-      const data = await searchTrainsBetween(q.source, q.destination, q.date, controller.signal)
+      const data = await searchTrainsBetween(q.source, q.destination, q.date, quota, controller.signal)
       setState({ status: 'success', data })
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
