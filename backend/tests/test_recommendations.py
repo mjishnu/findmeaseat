@@ -105,7 +105,7 @@ def test_build_verified_response():
 
 
 def test_parse_verify_result():
-    from app.routers.seat_finder import _parse_verify_result
+    from app.core.parser import parse_verify_result
 
     # Valid payload
     payload = {
@@ -121,14 +121,14 @@ def test_parse_verify_result():
     }
     import json
 
-    res = _parse_verify_result(json.dumps(payload))
+    res = parse_verify_result(json.dumps(payload))
     assert res is not None
     assert res["availability"].raw == "AVL 10"
     assert res["fare"] == 151
     assert res["prediction_pct"] == 85
 
     # Invalid / empty payloads return None
-    assert _parse_verify_result("invalid json") is None
-    assert _parse_verify_result("{}") is None
-    assert _parse_verify_result(json.dumps({"data": {}})) is None
+    assert parse_verify_result("invalid json") is None
+    assert parse_verify_result("{}") is None
+    assert parse_verify_result(json.dumps({"data": {}})) is None
 

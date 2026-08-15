@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from app.core.dates import validate_journey_date
 from app.core.manifest_store import ManifestCache, TrainSearchEntry
 from app.core.parser import extract_json_data
-from app.core.redis import SegmentCache
+from app.core.redis import FullSearchCache, SegmentCache
 from app.providers.irctc.client import build_confirmtkt_descriptor, format_date
 from app.providers.irctc.provider import build_trains_between
 from app.routers.common import GzipRoute
@@ -25,14 +25,15 @@ async def trains_between_manifest(body: TrainSearchManifestRequest):
     date_str = format_date(body.date)
     fetch_group = body.quota.fetch_group
 
-    cached = await SegmentCache.get_all(source, destination, date_str, fetch_group)
-    if cached:
-        return TrainsBetweenResponse(
-            source=source,
-            destination=destination,
-            journey_date=body.date,
-            trains=build_trains_between(cached),
-        )
+    if await FullSearchCache.get(source, destination, date_str, fetch_group):
+        cached = await SegmentCache.get_all(source, destination, date_str, fetch_group)
+        if cached:
+            return TrainsBetweenResponse(
+                source=source,
+                destination=destination,
+                journey_date=body.date,
+                trains=build_trains_between(cached),
+            )
 
     entry = TrainSearchEntry(
         source=source, destination=destination, journey_date=body.date, quota=body.quota
@@ -73,12 +74,19 @@ async def trains_between_process(body: ProcessRequest):
             if isinstance(t, dict) and "trainNumber" in t
         }
         if mapping:
+            date_str = format_date(entry.journey_date)
             await SegmentCache.put_many(
                 entry.source,
                 entry.destination,
-                format_date(entry.journey_date),
+                date_str,
                 fetch_group,
                 mapping,
+            )
+            await FullSearchCache.put(
+                entry.source,
+                entry.destination,
+                date_str,
+                fetch_group,
             )
 
     return TrainsBetweenResponse(

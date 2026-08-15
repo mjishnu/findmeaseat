@@ -27,7 +27,7 @@ def _clean(segment: str) -> list[str]:
 
 
 # First signed numeric token: keeps a leading sign and refuses to fuse separate
-# numbers (e.g. "1245 + 30 GST" -> 1245, not 124530).
+# numbers (e.g. "1245 + 30 GST" -> 1245, not 124530 (30 GST is skipped for simplicity)).
 _NUM_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 
 
