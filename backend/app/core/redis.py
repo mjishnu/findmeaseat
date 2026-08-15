@@ -1,13 +1,11 @@
 import json
 import os
 from collections.abc import Callable
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 import redis.asyncio as aioredis
 
 from app.schemas import TrainRoute
-
-T = TypeVar("T")
 
 # ── Shared connection pool ───────────────────────────────────────
 
@@ -31,11 +29,11 @@ async def close_redis() -> None:
         _pool = None
 
 
-# ── Generic typed cache ──────────────────────────────────────────
+# ── Base Redis cache ─────────────────────────────────────────────
 
 
-class TypedRedisCache(Generic[T]):
-    """Redis cache with key prefixing, TTLs, and pluggable serialization."""
+class BaseRedisCache[T]:
+    """Base Redis cache with key prefixing, TTLs, and pluggable serialization."""
 
     def __init__(
         self,
@@ -52,6 +50,19 @@ class TypedRedisCache(Generic[T]):
     def _key(self, *parts: Any) -> str:
         return f"{self.prefix}:" + ":".join(str(p) for p in parts if p is not None)
 
+    async def delete(self, *parts: Any) -> None:
+        await get_redis().delete(self._key(*parts))
+
+    async def exists(self, *parts: Any) -> bool:
+        return await get_redis().exists(self._key(*parts)) > 0
+
+
+# ── Generic typed string cache ───────────────────────────────────
+
+
+class StringRedisCache[T](BaseRedisCache[T]):
+    """Redis String cache for single typed values (GET / SET)."""
+
     async def get(self, *parts: Any) -> T | None:
         raw = await get_redis().get(self._key(*parts))
         return self.deserializer(raw) if raw is not None else None
@@ -61,17 +72,11 @@ class TypedRedisCache(Generic[T]):
         *parts, value = parts_and_value
         await get_redis().set(self._key(*parts), self.serializer(value), ex=self.ttl)
 
-    async def delete(self, *parts: Any) -> None:
-        await get_redis().delete(self._key(*parts))
-
-    async def exists(self, *parts: Any) -> bool:
-        return await get_redis().exists(self._key(*parts)) > 0
-
 
 # ── Boolean flag cache ───────────────────────────────────────────
 
 
-class FlagCache(TypedRedisCache[str]):
+class FlagRedisCache(BaseRedisCache[str]):
     """Presence-only cache: exists → True, missing → False."""
 
     async def get(self, *parts: Any) -> bool:  # type: ignore[override]
@@ -84,23 +89,8 @@ class FlagCache(TypedRedisCache[str]):
 # ── Hash redis cache ─────────────────────────────────────────────
 
 
-class HashRedisCache(Generic[T]):
+class HashRedisCache[T](BaseRedisCache[T]):
     """Redis Hash cache mapping sub-keys (e.g. train_number) to typed values."""
-
-    def __init__(
-        self,
-        prefix: str,
-        ttl: int,
-        serializer: Callable[[T], str] = json.dumps,
-        deserializer: Callable[[str], T] = json.loads,
-    ):
-        self.prefix = prefix
-        self.ttl = ttl
-        self.serializer = serializer
-        self.deserializer = deserializer
-
-    def _key(self, *parts: Any) -> str:
-        return f"{self.prefix}:" + ":".join(str(p) for p in parts if p is not None)
 
     async def get_all(self, *parts: Any) -> list[T]:
         """Fetch all fields from the hash as a list of deserialized values."""
@@ -136,16 +126,10 @@ class HashRedisCache(Generic[T]):
         pipe.expire(key, self.ttl)
         await pipe.execute()
 
-    async def delete(self, *parts: Any) -> None:
-        await get_redis().delete(self._key(*parts))
-
-    async def exists(self, *parts: Any) -> bool:
-        return await get_redis().exists(self._key(*parts)) > 0
-
 
 # ── Cache instances ──────────────────────────────────────────────
 
-RouteCache = TypedRedisCache[TrainRoute](
+RouteCache = StringRedisCache[TrainRoute](
     prefix="route",
     ttl=24 * 3600,  # 24hrs
     serializer=lambda r: r.model_dump_json(),
@@ -157,7 +141,12 @@ SegmentCache = HashRedisCache[dict](
     ttl=3 * 3600,
 )
 
-DeadPairCache = FlagCache(
+FullSearchCache = FlagRedisCache(
+    prefix="full_search",
+    ttl=3 * 3600,
+)
+
+DeadPairCache = FlagRedisCache(
     prefix="dead",
-    ttl=12 * 3600,
+    ttl=24 * 3600,
 )

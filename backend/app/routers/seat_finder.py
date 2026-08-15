@@ -4,7 +4,7 @@ from app.core.dates import validate_journey_date
 from app.core.manifest_store import ManifestCache, SeatFinderEntry
 from app.core.pairs import enumerate_pairs
 from app.core.parser import extract_json_data, parse_verify_result
-from app.core.redis import DeadPairCache, RouteCache, SegmentCache
+from app.core.redis import DeadPairCache, FullSearchCache, RouteCache, SegmentCache
 from app.exceptions import TrainNotFoundError
 from app.providers.irctc.client import (
     build_availability_descriptor,
@@ -83,12 +83,12 @@ async def seat_finder_manifest(body: SeatFinderManifestRequest):
         body.min_coverage_pct,
         body.require_connect,
     )
+    date_str = format_date(body.date)
     pairs = []
     for b, a in all_pairs:
-        if not await DeadPairCache.get(body.train_number, b.code, a.code):
+        if not await DeadPairCache.get(body.train_number, b.code, a.code, date_str):
             pairs.append((b, a))
     fetch_group = body.quota.fetch_group
-    date_str = format_date(body.date)
     cached_segs: dict[str, dict] = {}
     fetches = []
     fetch_id_to_pair = {}
@@ -146,13 +146,14 @@ async def _process_fetch_phase(
     if not submitted_set <= expected_ids:
         raise HTTPException(400, "Unknown fetch_id")
 
+    fetch_group = entry.quota.fetch_group
+    date_str = format_date(entry.journey_date)
+
     for fetch_id in expected_ids:
         if fetch_id not in submitted_set:
             board, alight = entry.fetch_id_to_pair[fetch_id]
-            await DeadPairCache.put(entry.train_number, board.code, alight.code)
+            await DeadPairCache.put(entry.train_number, board.code, alight.code, date_str)
 
-    fetch_group = entry.quota.fetch_group
-    date_str = format_date(entry.journey_date)
     parsed_segments: dict[str, dict] = {}
 
     for r in body.results:
@@ -163,6 +164,7 @@ async def _process_fetch_phase(
         if not data:
             continue
 
+        # Frontend prefilters to the target train (1 element in trainList)
         train_list = data.get("trainList", [])
         if train_list and isinstance(train_list[0], dict):
             segment_data = train_list[0]
@@ -214,6 +216,7 @@ async def _process_verify_phase(
         cached_parsed = cand.get("parsed", {})
         if override["availability"].raw != cached_parsed.get("raw"):
             await SegmentCache.delete(board, alight, date_str, fetch_group)
+            await FullSearchCache.delete(board, alight, date_str, fetch_group)
 
     ranked_data = {
         "candidates": entry.verify_candidates,
