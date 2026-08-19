@@ -1,7 +1,9 @@
-from app.core.manifest_store import SeatFinderEntry
-from app.core.parser import parse_availability
+"""RailDataProvider that reads from pre-parsed confirmtkt train dicts."""
+
+from app.infrastructure.manifest_store import SeatFinderEntry
 from app.providers.base import RailDataProvider
-from app.providers.irctc.client import _to_int, quota_cache_key, quota_class_cache
+from app.providers.prefetched.client import _to_int, quota_cache_key, quota_class_cache
+from app.providers.prefetched.parser import parse_availability
 from app.schemas import BookingQuota, ParsedAvailability, TrainRoute, TravelClass
 
 

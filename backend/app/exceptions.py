@@ -1,7 +1,3 @@
-"""Domain errors. main.py maps AppError subclasses to JSON responses,
-so services raise these without importing anything HTTP-specific."""
-
-
 class AppError(Exception):
     status_code = 400
 
@@ -23,6 +19,17 @@ class InvalidStationError(AppError):
 
 class InvalidJourneyDateError(AppError):
     """Date in the past or beyond the advance reservation period."""
+
+
+class ManifestExpiredError(AppError):
+    status_code = 404
+
+    def __init__(self, detail: str = "Manifest expired or unknown"):
+        super().__init__(detail)
+
+
+class InvalidManifestError(AppError):
+    """Invalid results payload or mismatch in manifest execution."""
 
 
 class ProviderUnavailableError(AppError):

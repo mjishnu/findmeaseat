@@ -1,11 +1,10 @@
 import json
-import os
 from collections.abc import Callable
 from typing import Any
 
 import redis.asyncio as aioredis
 
-from app.schemas import TrainRoute
+from app.config import get_settings
 
 # ── Shared connection pool ───────────────────────────────────────
 
@@ -16,8 +15,8 @@ def get_redis() -> aioredis.Redis:
     """Return the shared Redis connection, creating it lazily."""
     global _pool
     if _pool is None:
-        url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        _pool = aioredis.from_url(url, decode_responses=True)
+        settings = get_settings()
+        _pool = aioredis.from_url(settings.redis_url, decode_responses=True)
     return _pool
 
 
@@ -125,28 +124,3 @@ class HashRedisCache[T](BaseRedisCache[T]):
         pipe.hset(key, mapping=serialized_map)
         pipe.expire(key, self.ttl)
         await pipe.execute()
-
-
-# ── Cache instances ──────────────────────────────────────────────
-
-RouteCache = StringRedisCache[TrainRoute](
-    prefix="route",
-    ttl=24 * 3600,  # 24hrs
-    serializer=lambda r: r.model_dump_json(),
-    deserializer=TrainRoute.model_validate_json,
-)
-
-SegmentCache = HashRedisCache[dict](
-    prefix="seg",
-    ttl=3 * 3600,
-)
-
-FullSearchCache = FlagRedisCache(
-    prefix="full_search",
-    ttl=3 * 3600,
-)
-
-DeadPairCache = FlagRedisCache(
-    prefix="dead",
-    ttl=24 * 3600,
-)

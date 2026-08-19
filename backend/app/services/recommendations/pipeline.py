@@ -2,9 +2,9 @@
 
 import datetime as dt
 
-from app.core.dates import validate_journey_date
-from app.core.pairs import enumerate_pairs
-from app.core.ranking import confirmation_probability, sort_candidates
+from app.domain.dates import validate_journey_date
+from app.domain.pairs import enumerate_pairs
+from app.domain.ranking import confirmation_probability, sort_candidates
 from app.exceptions import TrainNotFoundError
 from app.providers.base import RailDataProvider
 from app.schemas import (
