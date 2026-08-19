@@ -1,12 +1,12 @@
 from fastapi import APIRouter
 
-from app.routers.common import GzipRoute
+from app.routers.common import DecompressRoute
 from app.routers.route import router as route_router
 from app.routers.seat_finder import router as seat_finder_router
 from app.routers.stations import router as stations_router
 from app.routers.train_search import router as train_search_router
 
-api_router = APIRouter(prefix="/api", route_class=GzipRoute)
+api_router = APIRouter(prefix="/api", route_class=DecompressRoute)
 
 api_router.include_router(route_router, prefix="/route", tags=["route"])
 api_router.include_router(

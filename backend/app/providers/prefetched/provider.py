@@ -2,7 +2,7 @@
 
 from app.infrastructure.manifest_store import SeatFinderEntry
 from app.providers.base import RailDataProvider
-from app.providers.prefetched.client import _to_int, quota_cache_key, quota_class_cache
+from app.providers.prefetched.client import quota_cache_key, quota_class_cache, to_int
 from app.providers.prefetched.parser import parse_availability
 from app.schemas import BookingQuota, ParsedAvailability, TrainRoute, TravelClass
 
@@ -47,7 +47,7 @@ class PreFetchedProvider(RailDataProvider):
         train = self._parsed.get(f"{source}|{destination}")
         if train is None:
             return -1
-        return _to_int(quota_class_cache(train, travel_class.value, quota).get("fare"))
+        return to_int(quota_class_cache(train, travel_class.value, quota).get("fare"))
 
     async def get_seat_prediction(
         self,
@@ -59,7 +59,7 @@ class PreFetchedProvider(RailDataProvider):
         train = self._parsed.get(f"{source}|{destination}")
         if train is None:
             return -1
-        return _to_int(
+        return to_int(
             quota_class_cache(train, travel_class.value, quota).get(
                 "predictionPercentage"
             )

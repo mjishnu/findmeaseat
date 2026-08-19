@@ -8,6 +8,7 @@ server only builds the URLs and parses the results.
 """
 
 import datetime as dt
+import json
 import re
 from typing import Any
 from urllib.parse import urlencode
@@ -22,16 +23,12 @@ CONFIRMTKT_AVAILABILITY = (
 )
 
 
-def _clean(segment: str) -> list[str]:
-    return [x for x in segment.split("~") if x != ""]
-
-
 # First signed numeric token: keeps a leading sign and refuses to fuse separate
 # numbers (e.g. "1245 + 30 GST" -> 1245, not 124530 (30 GST is skipped for simplicity)).
 _NUM_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 
 
-def _to_int(value: str | float | None) -> int:
+def to_int(value: str | float | None) -> int:
     """Coerce a distance/fare ('120', '₹520', '1,245', -50) to int, else -1."""
     if value is None:
         return -1
@@ -47,30 +44,29 @@ def _to_int(value: str | float | None) -> int:
 
 
 def parse_erail_header(body: str) -> tuple[str, str] | None:
-    """Parse erail getTrains response → (train_id, train_name),
-    or None if train not found."""
-    if "train not found" in body.lower():
+    """Parse client-stripped erail header JSON → (train_id, train_name)."""
+    if not body:
         return None
-    segs = body.split("~~~~~~~~")
-    d1 = _clean(segs[0])
-    if len(d1[1]) > 6:
-        d1 = d1[1:]
-    d2 = _clean(segs[1])
-    return d2[12], d1[2]
+    try:
+        data = json.loads(body)
+        if isinstance(data, dict) and "train_id" in data and "train_name" in data:
+            return str(data["train_id"]), str(data["train_name"])
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return None
 
 
 def parse_erail_route(route_text: str) -> list[dict[str, Any]]:
-    """Parse erail TRAINROUTE response → list of {code, name, distance_km}."""
-    stops = []
-    for item in route_text.split("~^"):
-        det = _clean(item)
-        if len(det) < 10:
-            continue
-        distance = _to_int(det[6])
-        if distance == -1:
-            continue
-        stops.append({"code": det[1], "name": det[2], "distance_km": distance})
-    return stops
+    """Parse client-stripped erail route JSON → list of {code, name, distance_km}."""
+    if not route_text:
+        return []
+    try:
+        data = json.loads(route_text)
+        if isinstance(data, dict) and isinstance(data.get("stops"), list):
+            return data["stops"]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return []
 
 
 def build_erail_header_descriptor(train_number: str) -> FetchDescriptor:

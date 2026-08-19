@@ -1,45 +1,60 @@
-import { NavLink, Navigate, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
+import { clsx } from 'clsx'
+import {
+  NavLink,
+  Navigate,
+  Route,
+  Routes,
+  createSearchParams,
+  useNavigate,
+  useSearchParams,
+} from 'react-router-dom'
 import type { SearchPrefill } from './components/SearchForm'
 import { SeatFinderPanel } from './components/SeatFinderPanel'
 import { TrainSearchPanel, type DeepLinkPayload } from './components/TrainSearchPanel'
 
-// Train Search is the leftmost (landing) tab; each view has its own URL so it is
-// linkable, reloadable, and back/forward-navigable.
-const NAV: { to: string; label: string }[] = [
-  { to: '/train-search', label: 'Train Search' },
-  { to: '/seat-finder', label: 'Seat Finder' },
-]
+const ROUTES = {
+  TRAIN_SEARCH: '/train-search',
+  SEAT_FINDER: '/seat-finder',
+} as const
 
-// The Seat Finder reads its prefill from the URL query, so a deep-linked (and
-// thus auto-searching) finder is itself shareable and bookmarkable.
+const NAV = [
+  { to: ROUTES.TRAIN_SEARCH, label: 'Train Search' },
+  { to: ROUTES.SEAT_FINDER, label: 'Seat Finder' },
+] as const
+
+function parsePrefill(params: URLSearchParams): SearchPrefill | undefined {
+  const trainNumber = params.get('train') ?? undefined
+  const source = params.get('from') ?? undefined
+  const destination = params.get('to') ?? undefined
+  const date = params.get('date') ?? undefined
+
+  if (!trainNumber && !source && !destination && !date) return undefined
+  return { trainNumber, source, destination, date }
+}
+
 function SeatFinderRoute() {
   const [params] = useSearchParams()
-  const seeded =
-    params.has('train') || params.has('from') || params.has('to') || params.has('date')
-  const prefill: SearchPrefill | undefined = seeded
-    ? {
-        trainNumber: params.get('train') ?? undefined,
-        source: params.get('from') ?? undefined,
-        destination: params.get('to') ?? undefined,
-        date: params.get('date') ?? undefined,
-      }
-    : undefined
-  // Key by the query string so navigating in a fresh prefill remounts the form —
-  // its "auto-search once" guard lives in component state.
+  const prefill = parsePrefill(params)
+
+  // Key by the query string so navigating in a fresh prefill remounts the form
   return <SeatFinderPanel key={params.toString()} initialPrefill={prefill} />
 }
 
 function TrainSearchRoute() {
   const navigate = useNavigate()
+
   function handleDeepLink(p: DeepLinkPayload) {
-    const q = new URLSearchParams({
-      train: p.trainNumber,
-      from: p.source,
-      to: p.destination,
-      date: p.date,
+    navigate({
+      pathname: ROUTES.SEAT_FINDER,
+      search: `?${createSearchParams({
+        train: p.trainNumber,
+        from: p.source,
+        to: p.destination,
+        date: p.date,
+      })}`,
     })
-    navigate(`/seat-finder?${q.toString()}`)
   }
+
   return <TrainSearchPanel onDeepLink={handleDeepLink} />
 }
 
@@ -53,18 +68,19 @@ export default function App() {
           </p>
           <nav
             aria-label="Tools"
-            className="flex items-center gap-1 font-ticket text-[11px] uppercase tracking-[0.2em]"
+            className="flex items-center gap-1 font-ticket text-xs uppercase tracking-widest"
           >
             {NAV.map((n) => (
               <NavLink
                 key={n.to}
                 to={n.to}
                 className={({ isActive }) =>
-                  `border-b-2 px-2 py-1 transition-colors ${
+                  clsx(
+                    'border-b-2 px-2 py-1 transition-colors',
                     isActive
                       ? 'border-signal-amber text-paper-50'
-                      : 'border-transparent text-paper-50/60 hover:text-paper-50'
-                  }`
+                      : 'border-transparent text-paper-50/60 hover:text-paper-50',
+                  )
                 }
               >
                 {n.label}
@@ -74,24 +90,17 @@ export default function App() {
         </div>
       </header>
 
-      {/* pb leaves room for the fixed footer so the last card never hides behind it */}
+      {/* pb leaves room for the fixed footer so cards don't hide behind it */}
       <main className="mx-auto max-w-5xl px-4 pb-28 pt-10 sm:px-6 sm:pt-14">
         <Routes>
-          <Route path="/" element={<Navigate to="/train-search" replace />} />
-          <Route path="/train-search" element={<TrainSearchRoute />} />
-          <Route path="/seat-finder" element={<SeatFinderRoute />} />
-          {/* Unknown paths land on the default view rather than a blank screen. */}
-          <Route path="*" element={<Navigate to="/train-search" replace />} />
+          <Route path={ROUTES.TRAIN_SEARCH} element={<TrainSearchRoute />} />
+          <Route path={ROUTES.SEAT_FINDER} element={<SeatFinderRoute />} />
+          <Route path="*" element={<Navigate to={ROUTES.TRAIN_SEARCH} replace />} />
         </Routes>
       </main>
-
-      {/* Fixed to the viewport bottom so the disclaimer is always visible; cards
-          scroll underneath it. z-10 sits above content but below the autocomplete
-          dropdown (z-20). bg-paper-100 keeps it opaque over scrolling content. */}
-      <footer className="fixed inset-x-0 bottom-0 z-10 border-t border-rail-200 bg-paper-100 py-4 shadow-[0_-2px_8px_rgba(20,30,50,0.06)]">
-        <p className="mx-auto max-w-5xl px-4 text-xs text-rail-700 sm:px-6">
+      <footer className="fixed inset-x-0 bottom-0 z-10 border-t border-rail-200 bg-paper-100 py-4 shadow-sm">
+        <p className="mx-auto max-w-5xl px-4 text-center text-xs text-rail-700 sm:px-6">
           Probabilities are heuristics based on public waitlist-clearance patterns, not guarantees.
-          Live data via erail.in &amp; confirmtkt (unofficial sources).
         </p>
       </footer>
     </div>

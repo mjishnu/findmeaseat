@@ -17,17 +17,18 @@ RouteCache = StringRedisCache[TrainRoute](
     deserializer=TrainRoute.model_validate_json,
 )
 
-SegmentCache = HashRedisCache[dict](
-    prefix="seg",
+TrainSearchCache = HashRedisCache[dict](
+    prefix="search_seg",
     ttl=settings.segment_cache_ttl,
 )
 
-FullSearchCache = FlagRedisCache(
-    prefix="full_search",
-    ttl=settings.full_search_cache_ttl,
+SeatFinderSegmentCache = HashRedisCache[dict](
+    prefix="sf_seg",
+    ttl=settings.segment_cache_ttl,
 )
 
 DeadPairCache = FlagRedisCache(
     prefix="dead",
     ttl=settings.dead_pair_cache_ttl,
 )
+

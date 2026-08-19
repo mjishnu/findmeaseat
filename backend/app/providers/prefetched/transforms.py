@@ -5,7 +5,7 @@ confirmtkt's availability display strings through parser + ranking into ClassAva
 """
 
 from app.domain.ranking import confirmation_probability
-from app.providers.prefetched.client import _to_int
+from app.providers.prefetched.client import to_int
 from app.providers.prefetched.parser import parse_availability
 from app.schemas import (
     ClassAvailability,
@@ -43,14 +43,14 @@ def _offers(cache: dict | None, class_order: list[str]) -> list[ClassAvailabilit
         if not raw:
             continue
         parsed = parse_availability(raw)
-        pred_pct = _to_int(entry.get("predictionPercentage"))
+        pred_pct = to_int(entry.get("predictionPercentage"))
         p = confirmation_probability(parsed, pred_pct)
         offers.append(
             ClassAvailability(
                 travel_class=tc,
                 availability=parsed,
                 probability=round(p, 3),
-                fare=_to_int(entry.get("fare")),
+                fare=to_int(entry.get("fare")),
             )
         )
     return offers
@@ -73,10 +73,10 @@ def build_trains_between(train_list: list[dict]) -> list[TrainBetween]:
                 to_name=t.get("toStnName") or "",
                 departure_time=t.get("departureTime") or "",
                 arrival_time=t.get("arrivalTime") or "",
-                duration_min=_to_int(t.get("duration")),
+                duration_min=to_int(t.get("duration")),
                 running_days=t.get("runningDays") or "",
                 has_pantry=bool(t.get("hasPantry")),
-                distance_km=_to_int(t.get("distance")),
+                distance_km=to_int(t.get("distance")),
                 general=_offers(t.get("availabilityCache"), order),
                 tatkal=_offers(t.get("availabilityCacheTatkal"), order),
                 classes=_offers(t.get("availabilityCacheForQuota"), order),

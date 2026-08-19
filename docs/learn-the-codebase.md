@@ -115,15 +115,15 @@ in isolation.
 
 - [backend/app/routers/](../backend/app/routers/) — one router per feature
   (`route.py`, `seat_finder.py`, `train_search.py`, `stations.py`), assembled
-  under `/api` in `__init__.py`. All use `GzipRoute` (in `common.py`) for
-  gzip-encoded request body decompression. Routers are thin — they validate input
+  under `/api` in `__init__.py`. All use `DecompressRoute` (in `common.py`) for
+  Zstd decompression and MessagePack request body decoding. Routers are thin — they validate input
   and delegate to services.
 - [backend/app/infrastructure/](../backend/app/infrastructure/) — technical
   plumbing:
   - **redis.py** — shared Redis connection pool + generic typed cache classes
     (`StringRedisCache`, `FlagRedisCache`, `HashRedisCache`).
-  - **cache.py** — cache singleton instances (`RouteCache`, `SegmentCache`,
-    `FullSearchCache`, `DeadPairCache`) wired with domain-specific serializers
+  - **cache.py** — cache singleton instances (`RouteCache`, `TrainSearchCache`,
+    `SeatFinderSegmentCache`, `DeadPairCache`) wired with domain-specific serializers
     and TTLs from `config.py`.
   - **manifest_store.py** — in-memory `ManifestStore` for the multi-phase
     manifest lifecycle. Holds `RouteManifestEntry`, `SeatFinderEntry`, and
@@ -152,8 +152,8 @@ endpoint.
   returns final results.
 - **Caching**: Four Redis caches prevent redundant browser fetches:
   - `RouteCache` — parsed train routes (24h TTL)
-  - `SegmentCache` — confirmtkt trainList data per segment (3h TTL)
-  - `FullSearchCache` — flags that a full search was done (3h TTL)
+  - `TrainSearchCache` — full train search results per OD pair (3h TTL)
+  - `SeatFinderSegmentCache` — lean availability data per segment for seat finder (3h TTL)
   - `DeadPairCache` — pairs that yielded no results (24h TTL)
 
 ## The core algorithm, end to end

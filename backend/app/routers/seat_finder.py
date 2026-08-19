@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.routers.common import GzipRoute
+from app.routers.common import DecompressRoute
 from app.schemas import (
     ManifestResponse,
     ProcessRequest,
@@ -9,7 +9,7 @@ from app.schemas import (
 )
 from app.services import seat_finder as seat_finder_service
 
-router = APIRouter(route_class=GzipRoute)
+router = APIRouter(route_class=DecompressRoute)
 
 
 @router.post("/manifest", response_model=ManifestResponse | RecommendationResponse)

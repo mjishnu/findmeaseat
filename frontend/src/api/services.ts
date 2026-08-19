@@ -46,10 +46,9 @@ export async function findOptimalRoute(
     if (
       err instanceof ApiError &&
       err.status === 404 &&
-      err.message.toLowerCase().includes('not found')
+      err.message.toLowerCase().includes('not found') // if error is route not found
     ) {
       await getTrainRoute(query.trainNumber, signal)
-      return await execute()
     }
     throw err
   }
