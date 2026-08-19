@@ -3,6 +3,7 @@ import time
 from dataclasses import dataclass, field
 from uuid import uuid4
 
+from app.config import get_settings
 from app.schemas import BookingQuota, StationStop, TrainRoute, TravelClass
 
 
@@ -40,7 +41,9 @@ class SeatFinderEntry(ManifestEntry):
     # Set after route phase
     route: TrainRoute | None = None
     pairs: list[tuple[StationStop, StationStop]] = field(default_factory=list)
-    fetch_id_to_pair: dict[str, tuple[StationStop, StationStop]] = field(default_factory=dict)
+    fetch_id_to_pair: dict[str, tuple[StationStop, StationStop]] = field(
+        default_factory=dict
+    )
     # Segment-cached confirmtkt data for pairs that didn't need browser fetching
     cached_segments: dict[str, dict] = field(default_factory=dict)
     # Set after fetch phase — carried into verify phase
@@ -59,9 +62,9 @@ class TrainSearchEntry(ManifestEntry):
 
 
 class ManifestStore:
-    def __init__(self, ttl: float = 300.0, max_size: int = 10000):
+    def __init__(self, ttl: float | None = None, max_size: int = 10000):
         self._store: dict[str, ManifestEntry] = {}
-        self._ttl = ttl
+        self._ttl = ttl if ttl is not None else get_settings().manifest_ttl
         self._max_size = max_size
 
     def put(self, entry: ManifestEntry) -> str:
@@ -89,4 +92,5 @@ class ManifestStore:
         return entry
 
 
+# In Memory Manifest Cache, It will store all the data for active user sessions
 ManifestCache = ManifestStore()

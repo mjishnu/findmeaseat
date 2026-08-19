@@ -3,8 +3,8 @@ FROM python:3.14-slim
 WORKDIR /app
 
 # Install deps first so the layer caches across code changes.
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml .
+RUN pip install --no-cache-dir .
 
 COPY app ./app
 

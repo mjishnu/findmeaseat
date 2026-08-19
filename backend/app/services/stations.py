@@ -6,8 +6,8 @@ name substring, city substring. Keeping name ahead of city stops every station i
 city (all sharing that city name) from crowding out the station actually named for it.
 """
 
-from functools import lru_cache
 import json
+from functools import lru_cache
 from pathlib import Path
 
 from rapidfuzz import fuzz

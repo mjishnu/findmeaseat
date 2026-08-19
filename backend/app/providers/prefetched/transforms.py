@@ -1,12 +1,12 @@
-"""Live RailDataProvider backed by erail.in + confirmtkt (via IRCTCClient).
+"""Transforms confirmtkt JSON payloads into normalized app schemas.
 
 Thin adapter: it shapes the client's output into the app's schemas and normalizes
-confirmtkt's availability display strings through app.core.parser + ranking into ClassAvailability.
+confirmtkt's availability display strings through parser + ranking into ClassAvailability.
 """
 
-from app.core.parser import parse_availability
-from app.core.ranking import confirmation_probability
-from app.providers.irctc.client import _to_int
+from app.domain.ranking import confirmation_probability
+from app.providers.prefetched.client import _to_int
+from app.providers.prefetched.parser import parse_availability
 from app.schemas import (
     ClassAvailability,
     TrainBetween,

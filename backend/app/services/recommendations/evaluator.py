@@ -1,6 +1,6 @@
 import asyncio
 
-from app.core.ranking import confirmation_probability, sort_candidates
+from app.domain.ranking import confirmation_probability, sort_candidates
 from app.exceptions import ProviderUnavailableError
 from app.providers.base import RailDataProvider
 from app.schemas import (
