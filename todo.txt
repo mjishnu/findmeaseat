@@ -1,6 +1,1 @@
-todo
-add partial result toggle in frontend and backend, one continus strip from point a to anyone of the stations between a to b
-
-
-when clicking find me a seat in seatfinder (front-end) update the browser url as well
 

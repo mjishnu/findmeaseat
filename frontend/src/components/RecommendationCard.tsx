@@ -3,7 +3,7 @@ import {
   type BookingQuota,
   type Recommendation,
   type RecommendationNoteCode,
-} from '../api/client'
+} from '../api'
 import { ProbabilityMeter } from './ProbabilityMeter'
 import { StatusBadge } from './StatusBadge'
 

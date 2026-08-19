@@ -1,4 +1,4 @@
-import { QUOTAS, type BookingQuota, type ClassAvailability, type TrainBetween } from '../api/client'
+import { QUOTAS, type BookingQuota, type ClassAvailability, type TrainBetween } from '../api'
 import { StatusBadge } from './StatusBadge'
 
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']

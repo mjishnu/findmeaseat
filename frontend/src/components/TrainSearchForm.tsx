@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { QUOTAS, type BookingQuota, type Station } from '../api/client'
+import { QUOTAS, type BookingQuota, type Station } from '../api'
 import { MAX_DATE, MIN_DATE } from '../lib/bookingDates'
 import { FIELD, LABEL } from './formStyles'
 import { StationAutocomplete } from './StationAutocomplete'

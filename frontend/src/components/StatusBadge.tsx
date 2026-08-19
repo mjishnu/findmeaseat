@@ -1,4 +1,4 @@
-import { AvailabilityStatus, type ParsedAvailability } from '../api/client'
+import { AvailabilityStatus, type ParsedAvailability } from '../api'
 
 const LIGHT_STYLES: Record<AvailabilityStatus, string> = {
   [AvailabilityStatus.AVAILABLE]: 'border-signal-green/50 bg-signal-green/15 text-signal-green-deep',

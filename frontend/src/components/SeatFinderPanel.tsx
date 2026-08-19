@@ -8,7 +8,7 @@ import {
   type RecommendationResponse,
   type SearchQuery,
   type TravelClass,
-} from '../api/client'
+} from '../api'
 import { ErrorBanner } from './ErrorBanner'
 import { ResultsList } from './ResultsList'
 import { SearchForm, type SearchPrefill } from './SearchForm'

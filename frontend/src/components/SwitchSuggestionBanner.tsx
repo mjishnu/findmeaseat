@@ -1,5 +1,5 @@
-import type { BookingQuota, SwitchAlternative, TravelClass } from '../api/client'
-import { QUOTAS } from '../api/client'
+import type { BookingQuota, SwitchAlternative, TravelClass } from '../api'
+import { QUOTAS } from '../api'
 import { StatusBadge } from './StatusBadge'
 
 interface SwitchSuggestionBannerProps {

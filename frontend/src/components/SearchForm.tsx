@@ -8,7 +8,7 @@ import {
   type SearchQuery,
   type TrainRoute,
   type TravelClass,
-} from '../api/client'
+} from '../api'
 import { FIELD, LABEL } from './formStyles'
 import { MAX_DATE, MIN_DATE } from '../lib/bookingDates'
 

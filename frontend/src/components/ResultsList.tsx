@@ -1,4 +1,4 @@
-import type { RecommendationResponse } from '../api/client'
+import type { RecommendationResponse } from '../api'
 import { RecommendationCard } from './RecommendationCard'
 import { StatusBadge } from './StatusBadge'
 
