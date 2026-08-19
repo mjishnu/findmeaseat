@@ -1,5 +1,8 @@
 // ── HTTP primitives ──────────────────────────────────────────────────────────
 
+import { encode } from '@msgpack/msgpack'
+import { compress } from 'zstdify'
+
 export class ApiError extends Error {
   status: number
 
@@ -32,19 +35,20 @@ export async function request<T>(url: string, signal?: AbortSignal): Promise<T> 
 }
 
 export async function postRequest<T>(url: string, body: unknown, signal?: AbortSignal): Promise<T> {
-  const bodyString = JSON.stringify(body)
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const packed = encode(body)
+  const compressed = compress(packed)
 
-  let reqBody: BodyInit = bodyString
-  try {
-    const stream = new Blob([bodyString]).stream().pipeThrough(new CompressionStream('gzip'))
-    reqBody = await new Response(stream).arrayBuffer()
-    headers['Content-Encoding'] = 'gzip'
-  } catch {
-    // Fallback if CompressionStream is not available
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/x-msgpack',
+    'Content-Encoding': 'zstd',
   }
 
-  const res = await fetch(url, { method: 'POST', headers, body: reqBody, signal })
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: compressed as unknown as BodyInit,
+    signal,
+  })
   if (!res.ok) throw new ApiError(res.status, await parseErrorDetail(res))
   return res.json() as Promise<T>
 }

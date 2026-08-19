@@ -2,11 +2,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.routers.common import GzipRoute
+from app.routers.common import DecompressRoute
 from app.schemas import Station
 from app.services.stations import search_stations as find_stations
 
-router = APIRouter(route_class=GzipRoute)
+router = APIRouter(route_class=DecompressRoute)
 
 
 @router.get("/stations", response_model=list[Station])

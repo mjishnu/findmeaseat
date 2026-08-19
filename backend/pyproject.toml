@@ -9,6 +9,8 @@ dependencies = [
     "rapidfuzz>=3.9.0",
     "redis[hiredis]>=5.0.0",
     "pydantic-settings>=2.0.0",
+    "msgpack>=1.1.0",
+    "zstandard>=0.23.0",
     "pytest>=8.4.2,<9",
     "pytest-asyncio>=1.2.0",
 ]

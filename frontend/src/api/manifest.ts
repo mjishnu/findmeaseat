@@ -1,25 +1,33 @@
-// ── Manifest execution & confirmtkt payload stripping ────────────────────────
+// ── Manifest execution & payload stripping ──────────────────────────────────
 // Internal module — not re-exported from the barrel.
 
 import type { FetchDescriptor, FetchResult, ManifestResponse } from './types'
 import { postRequest } from './http'
 
-// ── Confirmtkt pre-parser ────────────────────────────────────────────────────
+// ── Confirmtkt search pre-parser ─────────────────────────────────────────────
 // The backend only reads a small subset of fields from each train dict.
 // Strip everything else client-side to shrink the payload sent to /process.
 
+type JsonRecord = Record<string, unknown>
+
+function pick(obj: JsonRecord, keys: readonly string[]): JsonRecord {
+  const result: JsonRecord = {}
+  for (const k of keys) {
+    if (k in obj) result[k] = obj[k]
+  }
+  return result
+}
+
 const CACHE_ENTRY_KEYS = ['availability', 'availabilityDisplayName', 'fare', 'predictionPercentage'] as const
 
-function stripCacheEntries(cache: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+function stripCacheEntries(cache?: JsonRecord): JsonRecord | undefined {
   if (!cache || typeof cache !== 'object') return cache
-  const out: Record<string, unknown> = {}
+
+  const out: JsonRecord = {}
   for (const [cls, entry] of Object.entries(cache)) {
-    if (!entry || typeof entry !== 'object') continue
-    const slim: Record<string, unknown> = {}
-    for (const k of CACHE_ENTRY_KEYS) {
-      if (k in (entry as Record<string, unknown>)) { slim[k] = (entry as Record<string, unknown>)[k] }
+    if (entry && typeof entry === 'object') {
+      out[cls] = pick(entry as JsonRecord, CACHE_ENTRY_KEYS)
     }
-    out[cls] = slim
   }
   return out
 }
@@ -34,65 +42,131 @@ const TRAIN_KEEP_KEYS = [
 
 const CACHE_KEYS = ['availabilityCache', 'availabilityCacheTatkal', 'availabilityCacheForQuota'] as const
 
-function stripTrain(train: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const k of TRAIN_KEEP_KEYS) {
-    if (k in train) out[k] = train[k]
-  }
+function stripTrain(train: JsonRecord): JsonRecord {
+  const out = pick(train, TRAIN_KEEP_KEYS)
   for (const k of CACHE_KEYS) {
-    out[k] = stripCacheEntries(train[k] as Record<string, unknown> | undefined) ?? {}
+    out[k] = stripCacheEntries(train[k] as JsonRecord | undefined) ?? {}
   }
   return out
 }
 
-const CONFIRMTKT_HOST = 'cttrainsapi.confirmtkt.com'
-
-/**
- * Pre-parse a confirmtkt search response: keep only the fields the backend
- * actually uses from each train in data.trainList.  Returns the slimmed JSON
- * string, or the original body unchanged if parsing fails.
- *
- * When `filterTrainNumber` is provided (seat-finder flow), only the matching
- * train is kept — the rest are dropped entirely.
- */
 function preParseConfirmtktResponse(body: string, filterTrainNumber?: string): string {
   try {
     const payload = JSON.parse(body)
-    const data = payload?.data
-    if (!data || !Array.isArray(data.trainList)) return body
-    let trains: Record<string, unknown>[] = data.trainList
-    if (filterTrainNumber) {
-      trains = trains.filter((t) => String(t.trainNumber) === filterTrainNumber)
-    }
-    data.trainList = trains.map((t: Record<string, unknown>) => stripTrain(t))
-    delete data.nearbyTrains
-    delete data.nearbyDates
-    delete data.alternateTravelModes
-    delete data.alternateTravelModesMiddle
-    return JSON.stringify(payload)
+    const rawTrains = payload?.data?.trainList
+    if (!Array.isArray(rawTrains)) return body
+
+    const targetTrains = filterTrainNumber
+      ? rawTrains.filter((t: JsonRecord) => String(t.trainNumber) === filterTrainNumber)
+      : rawTrains
+
+    return JSON.stringify({
+      data: {
+        trainList: targetTrains.map(stripTrain),
+      },
+    })
   } catch {
     return body
   }
 }
 
+
+// ── Confirmtkt live-verify pre-parser ────────────────────────────────────────
+
+function stripVerifyResponse(body: string): string {
+  try {
+    const payload = JSON.parse(body)
+    const data = payload?.data
+    if (!data || !Array.isArray(data.avlDayList) || data.avlDayList.length === 0) return body
+    const liveDay = data.avlDayList[0]
+    const minimal = {
+      data: {
+        avlDayList: [
+          {
+            availablityStatus: liveDay?.availablityStatus,
+            predictionPercentage: liveDay?.predictionPercentage,
+          },
+        ],
+        fareInfo: {
+          totalFare: data.fareInfo?.totalFare,
+        },
+      },
+    }
+    return JSON.stringify(minimal)
+  } catch {
+    return body
+  }
+}
+
+// ── Erail pre-parsers ────────────────────────────────────────────────────────
+
+function stripErailHeader(body: string): string {
+  if (!body || body.toLowerCase().includes('train not found')) return body
+  try {
+    const segs = body.split('~~~~~~~~')
+    if (segs.length < 2) return body
+    let d1 = segs[0].split('~').filter((x) => x !== '')
+    if (d1[1] && d1[1].length > 6) {
+      d1 = d1.slice(1)
+    }
+    const d2 = segs[1].split('~').filter((x) => x !== '')
+    if (d2.length > 12 && d1.length > 2) {
+      return JSON.stringify({ train_id: d2[12], train_name: d1[2] })
+    }
+  } catch {
+    // fallback to raw body
+  }
+  return body
+}
+
+function stripErailRoute(body: string): string {
+  if (!body) return body
+  try {
+    const stops: { code: string; name: string; distance_km: number }[] = []
+    for (const item of body.split('~^')) {
+      const det = item.split('~').filter((x) => x !== '')
+      if (det.length < 10) continue
+      const distMatch = det[6].match(/-?\d[\d,]*(?:\.\d+)?/)
+      if (!distMatch) continue
+      const dist = Math.round(parseFloat(distMatch[0].replace(/,/g, '')))
+      if (isNaN(dist) || dist < 0) continue
+      stops.push({ code: det[1], name: det[2], distance_km: dist })
+    }
+    if (stops.length > 0) {
+      return JSON.stringify({ stops })
+    }
+  } catch {
+    // fallback to raw body
+  }
+  return body
+}
+
 // ── Fetch with retry ─────────────────────────────────────────────────────────
 
 async function fetchWithRetry(
-  f: FetchDescriptor, signal?: AbortSignal, retries = 3,
+  f: FetchDescriptor,
+  signal?: AbortSignal,
+  retries = 3,
   filterTrainNumber?: string,
 ): Promise<FetchResult> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      if (attempt > 0) await new Promise(r => setTimeout(r, 500 * attempt))
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 500 * attempt))
       const res = await fetch(f.url, {
         method: f.method || 'GET',
         headers: f.headers,
         body: f.body,
-        signal
+        signal,
       })
       let body = await res.text()
-      if (f.url.includes(CONFIRMTKT_HOST)) {
+      if (f.url.includes('api/v1/trains/search')) {
         body = preParseConfirmtktResponse(body, filterTrainNumber)
+      } else if (f.url.includes('api/v1/availability/fetchAvailability')) {
+        body = stripVerifyResponse(body)
+      } else if (f.url.includes('getTrains.aspx')) {
+        body = stripErailHeader(body)
+      } else if (f.url.includes('data.aspx')) {
+        body = stripErailRoute(body)
       }
       return { fetch_id: f.fetch_id, status: res.status, body }
     } catch {
@@ -105,27 +179,31 @@ async function fetchWithRetry(
 // ── Manifest loop ────────────────────────────────────────────────────────────
 
 function isContinue(r: unknown): r is ManifestResponse {
-  return typeof r === 'object' && r !== null && 'fetches' in r &&
-    Array.isArray((r as Record<string, unknown>).fetches) &&
-    ((r as Record<string, unknown>).fetches as unknown[]).length > 0
+  const fetches = (r as Partial<ManifestResponse>)?.fetches
+  return Array.isArray(fetches) && fetches.length > 0
 }
 
 export async function executeManifest<T>(
-  manifestUrl: string, processUrl: string, body: unknown, signal?: AbortSignal,
+  manifestUrl: string,
+  processUrl: string,
+  body: unknown,
+  signal?: AbortSignal,
   filterTrainNumber?: string,
 ): Promise<T> {
-  let response: unknown = await postRequest(manifestUrl, body, signal)
+  let response = await postRequest(manifestUrl, body, signal)
 
-  if (!isContinue(response)) return response as T
-
-  while (true) {
-    const manifest = response as ManifestResponse
+  while (isContinue(response)) {
     const results = await Promise.all(
-      manifest.fetches.map(f => fetchWithRetry(f, signal, 3, filterTrainNumber))
+      response.fetches.map((f) => fetchWithRetry(f, signal, 3, filterTrainNumber)),
     )
-    const validResults = results.filter(r => !r.body.includes('"trainList":[]'))
-    response = await postRequest(processUrl,
-      { manifest_id: manifest.manifest_id, results: validResults }, signal)
-    if (!isContinue(response)) return response as T
+    const validResults = results.filter((r) => !r.body.includes('"trainList":[]'))
+    response = await postRequest(
+      processUrl,
+      { manifest_id: response.manifest_id, results: validResults },
+      signal,
+    )
   }
+
+  return response as T
 }
+

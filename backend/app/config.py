@@ -23,7 +23,6 @@ class Settings(BaseSettings):
     # Cache TTLs (seconds)
     route_cache_ttl: int = 24 * 3600       # 24 hours
     segment_cache_ttl: int = 3 * 3600      # 3 hours
-    full_search_cache_ttl: int = 3 * 3600  # 3 hours
     dead_pair_cache_ttl: int = 24 * 3600   # 24 hours
     manifest_ttl: float = 300.0            # 5 minutes
 

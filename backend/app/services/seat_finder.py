@@ -17,9 +17,9 @@ from app.exceptions import (
 )
 from app.infrastructure.cache import (
     DeadPairCache,
-    FullSearchCache,
     RouteCache,
-    SegmentCache,
+    SeatFinderSegmentCache,
+    TrainSearchCache,
 )
 from app.infrastructure.manifest_store import ManifestCache, SeatFinderEntry
 from app.providers.prefetched.client import (
@@ -40,6 +40,12 @@ from app.schemas import (
     TravelClass,
 )
 from app.services.recommendations import build_verified_response, rank_candidates
+
+AVAILABILITY_CACHE_KEYS = (
+    "availabilityCache",
+    "availabilityCacheTatkal",
+    "availabilityCacheForQuota",
+)
 
 
 async def create_manifest(
@@ -84,9 +90,13 @@ async def create_manifest(
     for b, a in pairs:
         fid = f"{b.code}|{a.code}"
         fetch_id_to_pair[fid] = (b, a)
-        hit = await SegmentCache.get_field(
+        hit = await SeatFinderSegmentCache.get_field(
             b.code, a.code, date_str, fetch_group, train_number
         )
+        if hit is None:
+            hit = await TrainSearchCache.get_field(
+                b.code, a.code, date_str, fetch_group, train_number
+            )
         if hit is not None:
             cached_segs[fid] = hit
         else:
@@ -223,13 +233,18 @@ async def _process_fetch_phase(
             segment_data = train_list[0]
             parsed_segments[r.fetch_id] = segment_data
             board, alight = r.fetch_id.split("|")
-            await SegmentCache.put_field(
+            stripped_data = {
+                k: segment_data[k]
+                for k in AVAILABILITY_CACHE_KEYS
+                if k in segment_data
+            }
+            await SeatFinderSegmentCache.put_field(
                 board,
                 alight,
                 date_str,
                 fetch_group,
                 entry.train_number,
-                segment_data,
+                stripped_data,
             )
 
     parsed_segments.update(entry.cached_segments)
@@ -269,8 +284,8 @@ async def _process_verify_phase(
 
         cached_parsed = cand.get("parsed", {})
         if override["availability"].raw != cached_parsed.get("raw"):
-            await SegmentCache.delete(board, alight, date_str, fetch_group)
-            await FullSearchCache.delete(board, alight, date_str, fetch_group)
+            await SeatFinderSegmentCache.delete(board, alight, date_str, fetch_group)
+            await TrainSearchCache.delete(board, alight, date_str, fetch_group)
 
     ranked_data = {
         "candidates": entry.verify_candidates,

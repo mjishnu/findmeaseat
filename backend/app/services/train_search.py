@@ -4,7 +4,7 @@ import datetime as dt
 
 from app.domain.dates import validate_journey_date
 from app.exceptions import InvalidManifestError, ManifestExpiredError
-from app.infrastructure.cache import FullSearchCache, SegmentCache
+from app.infrastructure.cache import TrainSearchCache
 from app.infrastructure.manifest_store import ManifestCache, TrainSearchEntry
 from app.providers.prefetched.client import build_confirmtkt_descriptor, format_date
 from app.providers.prefetched.parser import extract_json_data
@@ -30,15 +30,14 @@ async def get_or_create_manifest(
     date_str = format_date(date)
     fetch_group = quota.fetch_group
 
-    if await FullSearchCache.get(source, destination, date_str, fetch_group):
-        cached = await SegmentCache.get_all(source, destination, date_str, fetch_group)
-        if cached:
-            return TrainsBetweenResponse(
-                source=source,
-                destination=destination,
-                journey_date=date,
-                trains=build_trains_between(cached),
-            )
+    cached = await TrainSearchCache.get_all(source, destination, date_str, fetch_group)
+    if cached:
+        return TrainsBetweenResponse(
+            source=source,
+            destination=destination,
+            journey_date=date,
+            trains=build_trains_between(cached),
+        )
 
     entry = TrainSearchEntry(
         source=source, destination=destination, journey_date=date, quota=quota
@@ -80,18 +79,12 @@ async def process_manifest(
         }
         if mapping:
             date_str = format_date(entry.journey_date)
-            await SegmentCache.put_many(
+            await TrainSearchCache.put_many(
                 entry.source,
                 entry.destination,
                 date_str,
                 fetch_group,
                 mapping,
-            )
-            await FullSearchCache.put(
-                entry.source,
-                entry.destination,
-                date_str,
-                fetch_group,
             )
 
     return TrainsBetweenResponse(
