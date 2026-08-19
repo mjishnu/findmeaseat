@@ -2,12 +2,11 @@ import { useRef, useState } from 'react'
 import {
   ApiError,
   searchTrainsBetween,
-  searchTrainsQuotaAvailability,
   type BookingQuota,
   type ClassAvailability,
   type TrainBetween,
   type TrainsBetweenResponse,
-} from '../api/client'
+} from '../api'
 import { ErrorBanner } from './ErrorBanner'
 import { SkeletonResults } from './SkeletonResults'
 import { TrainSearchForm } from './TrainSearchForm'
@@ -88,7 +87,7 @@ export function TrainSearchPanel({ onDeepLink }: TrainSearchPanelProps) {
     const controller = new AbortController()
     quotaAbortRef.current = controller
     setQuotaLoading(true)
-    searchTrainsQuotaAvailability(state.data.source, state.data.destination, state.data.journey_date, next, controller.signal)
+    searchTrainsBetween(state.data.source, state.data.destination, state.data.journey_date, next, controller.signal)
       .then((res) => {
         const byRow = new Map<string, ClassAvailability[]>()
         for (const t of res.trains) byRow.set(rowKey(t), t.classes)

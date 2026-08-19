@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
-import { searchStations, type Station } from '../api/client'
+import { searchStations, type Station } from '../api'
 import { FIELD, LABEL } from './formStyles'
 
 interface StationAutocompleteProps {

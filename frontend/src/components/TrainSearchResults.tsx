@@ -4,7 +4,7 @@ import {
   type ClassAvailability,
   type TrainBetween,
   type TrainsBetweenResponse,
-} from '../api/client'
+} from '../api'
 import { TrainBetweenCard } from './TrainBetweenCard'
 
 interface TrainSearchResultsProps {
