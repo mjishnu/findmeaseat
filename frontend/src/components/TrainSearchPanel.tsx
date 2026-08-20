@@ -12,16 +12,25 @@ import { SkeletonResults } from './SkeletonResults'
 import { TrainSearchForm } from './TrainSearchForm'
 import { TrainSearchResults } from './TrainSearchResults'
 
-// train_number is not unique within a result (enableNearby), so quota rows are
-// keyed by the same composite the card list uses.
 const rowKey = (t: { train_number: string; from_code: string; departure_time: string }) =>
   `${t.train_number}-${t.from_code}-${t.departure_time}`
 
 export interface DeepLinkPayload {
   trainNumber: string
   source: string
+  sourceName?: string
   destination: string
+  destinationName?: string
   date: string
+}
+
+export interface TrainSearchPrefill {
+  source?: string
+  sourceName?: string
+  destination?: string
+  destinationName?: string
+  date?: string
+  quota?: BookingQuota
 }
 
 type State =
@@ -32,23 +41,53 @@ type State =
 
 interface TrainSearchPanelProps {
   onDeepLink: (payload: DeepLinkPayload) => void
+  initialPrefill?: TrainSearchPrefill
 }
 
-export function TrainSearchPanel({ onDeepLink }: TrainSearchPanelProps) {
+export function TrainSearchPanel({ onDeepLink, initialPrefill }: TrainSearchPanelProps) {
   const [state, setState] = useState<State>({ status: 'idle' })
-  const [quota, setQuota] = useState<BookingQuota>('GN')
+  const [quota, setQuota] = useState<BookingQuota>(initialPrefill?.quota ?? 'GN')
   // Lazily-fetched LD/SS availability, keyed by quota then by composite row key.
   const [quotaCache, setQuotaCache] = useState<Partial<Record<BookingQuota, Map<string, ClassAvailability[]>>>>({})
   const [quotaLoading, setQuotaLoading] = useState(false)
   const quotaAbortRef = useRef<AbortController | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  async function handleSearch(q: { source: string; destination: string; date: string }) {
+  async function handleSearch(q: {
+    source: string
+    sourceName?: string
+    destination: string
+    destinationName?: string
+    date: string
+  }) {
     abortRef.current?.abort() // resubmits cancel the stale request
     const controller = new AbortController()
     abortRef.current = controller
     setState({ status: 'loading' })
     setQuotaCache({}) // a new route/date invalidates lazily-fetched quotas
+
+    // Keep browser URL in sync so searches are shareable and bookmarkable
+    const url = new URL(window.location.href)
+    url.searchParams.set('from', q.source)
+    if (q.sourceName) {
+      url.searchParams.set('fromName', q.sourceName)
+    } else {
+      url.searchParams.delete('fromName')
+    }
+    url.searchParams.set('to', q.destination)
+    if (q.destinationName) {
+      url.searchParams.set('toName', q.destinationName)
+    } else {
+      url.searchParams.delete('toName')
+    }
+    url.searchParams.set('date', q.date)
+    if (quota && quota !== 'GN') {
+      url.searchParams.set('quota', quota)
+    } else {
+      url.searchParams.delete('quota')
+    }
+    window.history.replaceState(null, '', url.pathname + url.search)
+
     try {
       const data = await searchTrainsBetween(q.source, q.destination, q.date, quota, controller.signal)
       setState({ status: 'success', data })
@@ -57,23 +96,19 @@ export function TrainSearchPanel({ onDeepLink }: TrainSearchPanelProps) {
       const message =
         err instanceof ApiError
           ? err.message
-          : 'Could not reach the server — is the backend running?'
+          : 'Could not reach the server'
       setState({ status: 'error', message })
     }
   }
 
   function handleFindSeat(train: TrainBetween) {
     if (state.status !== 'success') return
-    // Carry THIS train's own boarding/alighting stations (what the card shows),
-    // not the user's searched From/To. With confirmtkt's enableNearby, a train
-    // may serve a nearby station — e.g. a NDLS→MMCT search surfaces Punjab Mail
-    // running NDLS→CSMT. The seat-finder's selects are populated from this
-    // train's route, so the searched code (MMCT) wouldn't be an option and the
-    // dropdown would render blank; the train's own codes always are on its route.
     onDeepLink({
       trainNumber: train.train_number,
       source: train.from_code,
+      sourceName: train.from_name,
       destination: train.to_code,
+      destinationName: train.to_name,
       date: state.data.journey_date,
     })
   }
@@ -81,6 +116,16 @@ export function TrainSearchPanel({ onDeepLink }: TrainSearchPanelProps) {
   function handleQuotaChange(next: BookingQuota) {
     setQuota(next)
     if (state.status !== 'success') return
+
+    // Update quota in URL
+    const url = new URL(window.location.href)
+    if (next === 'GN') {
+      url.searchParams.delete('quota')
+    } else {
+      url.searchParams.set('quota', next)
+    }
+    window.history.replaceState(null, '', url.pathname + url.search)
+
     if (next === 'GN' || next === 'TQ') return // bundled in the base response
     if (quotaCache[next]) return // already fetched
     quotaAbortRef.current?.abort()
@@ -105,12 +150,12 @@ export function TrainSearchPanel({ onDeepLink }: TrainSearchPanelProps) {
   return (
     <>
       <section className="max-w-2xl">
-        <h1 className="font-display text-4xl font-black leading-[1.05] sm:text-5xl lg:text-6xl">
+        <h1 className="font-display text-4xl font-black leading-tight sm:text-5xl lg:text-6xl">
           Which train? <span className="italic text-rail-700">Find them all.</span>
         </h1>
         <p className="mt-4 text-base leading-relaxed text-rail-700 sm:text-lg">
           Search every train running your route, with live fares and seat availability per class
-          in both General and Tatkal quotas — then jump straight to the berth finder.
+          in all quotas — then jump straight to the seat finder.
         </p>
       </section>
 
@@ -119,6 +164,7 @@ export function TrainSearchPanel({ onDeepLink }: TrainSearchPanelProps) {
         searching={state.status === 'loading'}
         quota={quota}
         onQuotaChange={handleQuotaChange}
+        initial={initialPrefill}
       />
 
       <p aria-live="polite" className="sr-only">
@@ -130,7 +176,7 @@ export function TrainSearchPanel({ onDeepLink }: TrainSearchPanelProps) {
       </p>
 
       {state.status === 'loading' && <SkeletonResults />}
-      {state.status === 'error' && <ErrorBanner message={state.message} />}
+      {state.status === 'error' && <ErrorBanner>{state.message}</ErrorBanner>}
       {state.status === 'success' && (
         <TrainSearchResults
           data={state.data}

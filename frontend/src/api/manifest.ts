@@ -196,10 +196,9 @@ export async function executeManifest<T>(
     const results = await Promise.all(
       response.fetches.map((f) => fetchWithRetry(f, signal, 3, filterTrainNumber)),
     )
-    const validResults = results.filter((r) => !r.body.includes('"trainList":[]'))
     response = await postRequest(
       processUrl,
-      { manifest_id: response.manifest_id, results: validResults },
+      { manifest_id: response.manifest_id, results },
       signal,
     )
   }

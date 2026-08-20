@@ -1,14 +1,25 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type SubmitEvent } from 'react'
 import { QUOTAS, type BookingQuota, type Station } from '../api'
 import { MAX_DATE, MIN_DATE } from '../lib/bookingDates'
 import { FIELD, LABEL } from './formStyles'
 import { StationAutocomplete } from './StationAutocomplete'
+import type { TrainSearchPrefill } from './TrainSearchPanel'
+
+const formatStation = (s: Station) =>
+  s.name && s.name !== s.code ? `${s.name} (${s.code})` : s.code
 
 interface TrainSearchFormProps {
-  onSearch: (q: { source: string; destination: string; date: string }) => void
+  onSearch: (q: {
+    source: string
+    sourceName?: string
+    destination: string
+    destinationName?: string
+    date: string
+  }) => void
   searching: boolean
   quota: BookingQuota
   onQuotaChange: (quota: BookingQuota) => void
+  initial?: TrainSearchPrefill
 }
 
 export function TrainSearchForm({
@@ -16,12 +27,37 @@ export function TrainSearchForm({
   searching,
   quota,
   onQuotaChange,
+  initial,
 }: TrainSearchFormProps) {
-  const [fromText, setFromText] = useState('')
-  const [fromStation, setFromStation] = useState<Station | null>(null)
-  const [toText, setToText] = useState('')
-  const [toStation, setToStation] = useState<Station | null>(null)
-  const [date, setDate] = useState(MIN_DATE)
+  const initialFrom = initial?.source
+    ? { code: initial.source, name: initial.sourceName ?? initial.source, city: '' }
+    : null
+  const initialTo = initial?.destination
+    ? { code: initial.destination, name: initial.destinationName ?? initial.destination, city: '' }
+    : null
+
+  const [fromStation, setFromStation] = useState<Station | null>(initialFrom)
+  const [fromText, setFromText] = useState(initialFrom ? formatStation(initialFrom) : '')
+  const [toStation, setToStation] = useState<Station | null>(initialTo)
+  const [toText, setToText] = useState(initialTo ? formatStation(initialTo) : '')
+  const [date, setDate] = useState(initial?.date ?? MIN_DATE)
+
+  const autoSearchPending = useRef(
+    Boolean(initial?.source && initial?.destination && (initial?.date ?? MIN_DATE)),
+  )
+
+  useEffect(() => {
+    if (!autoSearchPending.current) return
+    if (searching || !fromStation || !toStation || !date) return
+    autoSearchPending.current = false
+    onSearch({
+      source: fromStation.code,
+      sourceName: fromStation.name && fromStation.name !== fromStation.code ? fromStation.name : undefined,
+      destination: toStation.code,
+      destinationName: toStation.name && toStation.name !== toStation.code ? toStation.name : undefined,
+      date,
+    })
+  }, [fromStation, toStation, date, searching, onSearch])
 
   const ready = Boolean(fromStation && toStation && date)
 
@@ -32,10 +68,16 @@ export function TrainSearchForm({
     setToStation(fromStation)
   }
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  function handleSubmit(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
     if (searching || !fromStation || !toStation) return
-    onSearch({ source: fromStation.code, destination: toStation.code, date })
+    onSearch({
+      source: fromStation.code,
+      sourceName: fromStation.name && fromStation.name !== fromStation.code ? fromStation.name : undefined,
+      destination: toStation.code,
+      destinationName: toStation.name && toStation.name !== toStation.code ? toStation.name : undefined,
+      date,
+    })
   }
 
   return (

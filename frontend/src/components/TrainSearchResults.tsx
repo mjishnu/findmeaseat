@@ -5,6 +5,7 @@ import {
   type TrainBetween,
   type TrainsBetweenResponse,
 } from '../api'
+import { ErrorBanner } from './ErrorBanner'
 import { TrainBetweenCard } from './TrainBetweenCard'
 
 interface TrainSearchResultsProps {
@@ -44,10 +45,10 @@ export function TrainSearchResults({ data, quota, quotaLoading, onFindSeat, clas
       </div>
 
       {trains.length === 0 ? (
-        <p className="mt-8 rounded-lg border border-dashed border-rail-200 p-8 text-center text-sm text-rail-700">
+        <ErrorBanner>
           No direct trains found between {source} and {destination} on this date. Try a
           nearby station or another day.
-        </p>
+        </ErrorBanner>
       ) : (
         <div className={`mt-6 grid grid-cols-1 gap-5 md:grid-cols-2 ${quotaLoading ? 'opacity-50' : ''}`}>
           {trains.map((t) => (

@@ -1,4 +1,5 @@
 import type { RecommendationResponse } from '../api'
+import { ErrorBanner } from './ErrorBanner'
 import { RecommendationCard } from './RecommendationCard'
 import { StatusBadge } from './StatusBadge'
 
@@ -35,11 +36,11 @@ export function ResultsList({ data }: ResultsListProps) {
       )}
 
       {recommendations.length === 0 ? (
-        <p className="mt-8 rounded-lg border border-dashed border-rail-200 p-8 text-center text-sm text-rail-700">
+        <ErrorBanner>
           {data.quota === 'TQ'
             ? 'No bookable options in Tatkal for this date — Tatkal opens ~1 day before travel. Switch to General quota or pick a nearer date.'
             : 'No bookable combination right now — every covering pair came back REGRET or unparseable. Try another date.'}
-        </p>
+        </ErrorBanner>
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
           {recommendations.map((rec) => (

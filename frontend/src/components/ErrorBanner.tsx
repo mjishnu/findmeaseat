@@ -1,14 +1,18 @@
+import type { ReactNode } from 'react'
+import { AlertCircle } from 'lucide-react'
+
 interface ErrorBannerProps {
-  message: string
+  children: ReactNode
 }
 
-export function ErrorBanner({ message }: ErrorBannerProps) {
+export function ErrorBanner({ children }: ErrorBannerProps) {
   return (
-    <p
+    <div
       role="alert"
-      className="mt-10 rounded-lg border border-signal-red/40 bg-signal-red/10 px-4 py-3 text-sm text-signal-red"
+      className="mt-8 flex items-center justify-center gap-2.5 rounded-lg border border-signal-red/25 bg-signal-red/5 p-6 text-center text-sm text-signal-red"
     >
-      {message}
-    </p>
+      <AlertCircle className="size-4 shrink-0" />
+      <div>{children}</div>
+    </div>
   )
 }
