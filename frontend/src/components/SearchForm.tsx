@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type SubmitEvent } from 'react'
 import {
   ApiError,
   getTrainRoute,
@@ -15,8 +15,12 @@ import { MAX_DATE, MIN_DATE } from '../lib/bookingDates'
 export interface SearchPrefill {
   trainNumber?: string
   source?: string
+  sourceName?: string
   destination?: string
+  destinationName?: string
   date?: string
+  travelClass?: TravelClass
+  quota?: BookingQuota
 }
 
 interface SearchFormProps {
@@ -59,8 +63,8 @@ export function SearchForm({
   const [route, setRoute] = useState<TrainRoute | null>(null)
   const [routeError, setRouteError] = useState<string | null>(null)
   const [retryToken, setRetryToken] = useState(0)
-  // A Train Search deep-link arrives with a full prefill; once the route loads
-  // (the From/To selects need its stations) we fire the search automatically.
+  // A Train Search deep-link arrives with a full prefill; fire the search
+  // immediately without waiting for route stops to finish downloading.
   const autoSearchPending = useRef(
     Boolean(initial?.trainNumber && initial?.source && initial?.destination && initial?.date),
   )
@@ -91,18 +95,18 @@ export function SearchForm({
     return () => controller.abort()
   }, [trainNumber, retryToken])
 
-  // Auto-run the deep-linked search once, after the route (and thus the seeded
-  // From/To options) is in place. The ref guard keeps it to a single fire.
+  // Auto-run the deep-linked search once immediately when inputs are present.
+  // The ref guard keeps it to a single fire.
   useEffect(() => {
     if (!autoSearchPending.current) return
-    if (searching || !route || !source || !destination || !date) return
+    if (searching || !source || !destination || !date || !trainNumber) return
     autoSearchPending.current = false
     onSearch({ trainNumber, source, destination, date, travelClass, quota, partial, minCoveragePct, requireConnect })
-  }, [route, source, destination, date, searching, trainNumber, travelClass, quota, partial, minCoveragePct, requireConnect, onSearch])
+  }, [source, destination, date, searching, trainNumber, travelClass, quota, partial, minCoveragePct, requireConnect, onSearch])
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  function handleSubmit(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (searching || !route) return // button is aria-disabled, not disabled
+    if (searching || !route) return
     onSearch({
       trainNumber,
       source,
@@ -172,19 +176,27 @@ export function SearchForm({
             id="source"
             name="source"
             required
-            disabled={!route}
+            disabled={!route && !source}
             className={FIELD}
             value={source}
             onChange={(e) => setSource(e.target.value)}
           >
-            <option value="" disabled>
-              {route ? 'Select station' : 'Enter train first'}
-            </option>
-            {route?.stations.map((s) => (
-              <option key={s.code} value={s.code}>
-                {s.code} — {s.name}
+            {!route && source ? (
+              <option value={source}>
+                {initial?.sourceName ? `${source} — ${initial.sourceName}` : source}
               </option>
-            ))}
+            ) : (
+              <>
+                <option value="" disabled>
+                  {route ? 'Select station' : 'Enter train first'}
+                </option>
+                {route?.stations.map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.code} — {s.name}
+                  </option>
+                ))}
+              </>
+            )}
           </select>
         </div>
 
@@ -196,19 +208,27 @@ export function SearchForm({
             id="destination"
             name="destination"
             required
-            disabled={!route}
+            disabled={!route && !destination}
             className={FIELD}
             value={destination}
             onChange={(e) => setDestination(e.target.value)}
           >
-            <option value="" disabled>
-              {route ? 'Select station' : 'Enter train first'}
-            </option>
-            {route?.stations.map((s) => (
-              <option key={s.code} value={s.code}>
-                {s.code} — {s.name}
+            {!route && destination ? (
+              <option value={destination}>
+                {initial?.destinationName ? `${destination} — ${initial.destinationName}` : destination}
               </option>
-            ))}
+            ) : (
+              <>
+                <option value="" disabled>
+                  {route ? 'Select station' : 'Enter train first'}
+                </option>
+                {route?.stations.map((s) => (
+                  <option key={s.code} value={s.code}>
+                    {s.code} — {s.name}
+                  </option>
+                ))}
+              </>
+            )}
           </select>
         </div>
 

@@ -49,6 +49,7 @@ export async function findOptimalRoute(
       err.message.toLowerCase().includes('not found') // if error is route not found
     ) {
       await getTrainRoute(query.trainNumber, signal)
+      return await execute()
     }
     throw err
   }

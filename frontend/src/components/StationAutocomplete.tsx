@@ -11,7 +11,8 @@ interface StationAutocompleteProps {
   onStationChange: (station: Station | null) => void
 }
 
-const formatStation = (s: Station) => `${s.name} (${s.code})`
+const formatStation = (s: Station) =>
+  s.name && s.name !== s.code ? `${s.name} (${s.code})` : s.code
 
 export function StationAutocomplete({
   label,

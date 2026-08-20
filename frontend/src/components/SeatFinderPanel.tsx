@@ -29,8 +29,8 @@ interface SeatFinderPanelProps {
 export function SeatFinderPanel({ initialPrefill }: SeatFinderPanelProps) {
   const [results, setResults] = useState<ResultsState>({ status: 'idle' })
   const [lastQuery, setLastQuery] = useState<SearchQuery | null>(null)
-  const [travelClass, setTravelClass] = useState<TravelClass>(DEFAULT_TRAVEL_CLASS)
-  const [quota, setQuota] = useState<BookingQuota>(DEFAULT_QUOTA)
+  const [travelClass, setTravelClass] = useState<TravelClass>(initialPrefill?.travelClass ?? DEFAULT_TRAVEL_CLASS)
+  const [quota, setQuota] = useState<BookingQuota>(initialPrefill?.quota ?? DEFAULT_QUOTA)
   const [partial, setPartial] = useState(false)
   const [minCoveragePct, setMinCoveragePct] = useState(0.75)
   const [requireConnect, setRequireConnect] = useState(true)
@@ -42,6 +42,31 @@ export function SeatFinderPanel({ initialPrefill }: SeatFinderPanelProps) {
     abortRef.current = controller
     setLastQuery(query) // remembered so the class banner can re-search in another class
     setResults({ status: 'loading' })
+
+    // Keep browser URL in sync so searches are shareable and bookmarkable
+    const url = new URL(window.location.href)
+    url.searchParams.set('train', query.trainNumber)
+    if (url.searchParams.get('from') !== query.source) {
+      url.searchParams.delete('fromName')
+    }
+    url.searchParams.set('from', query.source)
+    if (url.searchParams.get('to') !== query.destination) {
+      url.searchParams.delete('toName')
+    }
+    url.searchParams.set('to', query.destination)
+    url.searchParams.set('date', query.date)
+    if (query.travelClass && query.travelClass !== DEFAULT_TRAVEL_CLASS) {
+      url.searchParams.set('class', query.travelClass)
+    } else {
+      url.searchParams.delete('class')
+    }
+    if (query.quota && query.quota !== DEFAULT_QUOTA) {
+      url.searchParams.set('quota', query.quota)
+    } else {
+      url.searchParams.delete('quota')
+    }
+    window.history.replaceState(null, '', url.pathname + url.search)
+
     try {
       const data = await findOptimalRoute(query, controller.signal)
       setResults({ status: 'success', data })
@@ -52,7 +77,7 @@ export function SeatFinderPanel({ initialPrefill }: SeatFinderPanelProps) {
           ? err.status === 404
             ? 'Search expired — please retry'
             : err.message
-          : 'Could not reach the server — is the backend running?'
+          : 'Could not reach the server'
       setResults({ status: 'error', message })
     }
   }
@@ -60,7 +85,7 @@ export function SeatFinderPanel({ initialPrefill }: SeatFinderPanelProps) {
   return (
     <>
       <section className="max-w-2xl">
-        <h1 className="font-display text-4xl font-black leading-[1.05] sm:text-5xl lg:text-6xl">
+        <h1 className="font-display text-4xl font-black leading-tight sm:text-5xl lg:text-6xl">
           Waitlisted? <span className="italic text-rail-700">Outsmart the quota.</span>
         </h1>
         <p className="mt-4 text-base leading-relaxed text-rail-700 sm:text-lg">
@@ -95,7 +120,7 @@ export function SeatFinderPanel({ initialPrefill }: SeatFinderPanelProps) {
       </p>
 
       {results.status === 'loading' && <SkeletonResults />}
-      {results.status === 'error' && <ErrorBanner message={results.message} />}
+      {results.status === 'error' && <ErrorBanner>{results.message}</ErrorBanner>}
       {results.status === 'success' && (
         <>
           {lastQuery && (

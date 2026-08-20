@@ -1,4 +1,5 @@
 import { QUOTAS, type BookingQuota, type ClassAvailability, type TrainBetween } from '../api'
+import { ErrorBanner } from './ErrorBanner'
 import { StatusBadge } from './StatusBadge'
 
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
@@ -16,9 +17,8 @@ function RunningDays({ days }: { days: string }) {
         return (
           <span
             key={i}
-            className={`grid size-5 place-items-center rounded-sm font-ticket text-[10px] font-bold ${
-              runs ? 'bg-signal-green/20 text-signal-green-deep' : 'bg-rail-200/50 text-rail-700/40'
-            }`}
+            className={`grid size-5 place-items-center rounded-sm font-ticket text-xs font-bold ${runs ? 'bg-signal-green/20 text-signal-green-deep' : 'bg-rail-200/50 text-rail-700/40'
+              }`}
           >
             {d}
           </span>
@@ -30,7 +30,7 @@ function RunningDays({ days }: { days: string }) {
 
 function ClassChip({ cls }: { cls: ClassAvailability }) {
   return (
-    <div className="min-w-[92px] rounded-lg border border-rail-200 bg-white px-3 py-2">
+    <div className="min-w-24 rounded-lg border border-rail-200 bg-white px-3 py-2">
       <div className="flex items-center justify-between gap-3">
         <span className="font-ticket text-sm font-bold tracking-wide text-rail-950">
           {cls.travel_class}
@@ -85,7 +85,7 @@ export function TrainBetweenCard({ train, quota, classes, onFindSeat }: TrainBet
             </h3>
           </div>
           {train.has_pantry && (
-            <span className="shrink-0 rounded-sm bg-rail-200/60 px-2 py-0.5 font-ticket text-[10px] uppercase tracking-[0.15em] text-rail-700">
+            <span className="shrink-0 rounded-sm bg-rail-200/60 px-2 py-0.5 font-ticket text-xs uppercase tracking-widest text-rail-700">
               Pantry
             </span>
           )}
@@ -99,10 +99,10 @@ export function TrainBetweenCard({ train, quota, classes, onFindSeat }: TrainBet
             <p className="font-ticket text-2xl font-semibold tracking-tight text-rail-950">
               {train.departure_time}
             </p>
-            <p className="font-ticket text-[11px] tracking-wide text-rail-700">{train.from_code}</p>
+            <p className="font-ticket text-xs tracking-wide text-rail-700">{train.from_code}</p>
           </div>
           <div className="flex flex-1 flex-col items-center px-1">
-            <span className="font-ticket text-[11px] text-rail-700">
+            <span className="font-ticket text-xs text-rail-700">
               {formatDuration(train.duration_min)}
             </span>
             <span aria-hidden className="my-0.5 h-px w-full bg-gradient-to-r from-transparent via-rail-200 to-transparent" />
@@ -112,7 +112,7 @@ export function TrainBetweenCard({ train, quota, classes, onFindSeat }: TrainBet
             <p className="font-ticket text-2xl font-semibold tracking-tight text-rail-950">
               {train.arrival_time}
             </p>
-            <p className="font-ticket text-[11px] tracking-wide text-rail-700">{train.to_code}</p>
+            <p className="font-ticket text-xs tracking-wide text-rail-700">{train.to_code}</p>
           </div>
         </div>
 
@@ -128,24 +128,21 @@ export function TrainBetweenCard({ train, quota, classes, onFindSeat }: TrainBet
             ))}
           </div>
         ) : (
-          <p className="rounded-md border border-dashed border-rail-200 px-3 py-2 text-xs italic text-rail-700">
+          <ErrorBanner>
             {emptyHint(quota, train.allowed_quotas)}
-          </p>
+          </ErrorBanner>
         )}
 
-        <div className="flex items-center justify-between border-t border-rail-200/70 pt-3">
-          <span className="font-ticket text-[11px] uppercase tracking-[0.15em] text-rail-700">
+        <div className="flex min-h-14 items-center justify-between gap-3 border-t border-rail-200/70 pt-3">
+          <span className="flex-1 font-ticket text-xs uppercase tracking-widest text-rail-700">
             {train.from_name} → {train.to_name}
           </span>
           <button
             type="button"
             onClick={() => onFindSeat(train)}
-            className="group inline-flex items-center gap-1.5 rounded-md border border-signal-amber/60 bg-signal-amber/15 px-3 py-1.5 font-ticket text-xs font-semibold uppercase tracking-[0.12em] text-signal-amber-deep transition-colors hover:bg-signal-amber/25 focus:outline-none focus:ring-2 focus:ring-signal-amber/40"
+            className="group inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md bg-rail-900 px-4 py-2.5 font-ticket text-xs font-semibold uppercase tracking-widest text-paper-50 transition-colors hover:bg-rail-700 focus:outline-none focus:ring-2 focus:ring-rail-500 focus:ring-offset-2 focus:ring-offset-paper-50"
           >
             Find me a seat
-            <span aria-hidden className="transition-transform group-hover:translate-x-0.5">
-              →
-            </span>
           </button>
         </div>
       </div>
