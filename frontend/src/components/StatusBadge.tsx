@@ -17,17 +17,23 @@ const DARK_STYLES: Record<AvailabilityStatus, string> = {
 }
 
 interface StatusBadgeProps {
-  availability: ParsedAvailability
+  availability?: ParsedAvailability | null
   tone?: 'light' | 'dark' // match the surface the badge sits on
+  fallbackText?: string
 }
 
-export function StatusBadge({ availability, tone = 'light' }: StatusBadgeProps) {
+export function StatusBadge({
+  availability,
+  tone = 'light',
+  fallbackText = 'Not Available',
+}: StatusBadgeProps) {
   const styles = tone === 'dark' ? DARK_STYLES : LIGHT_STYLES
+  const status = availability?.status ?? AvailabilityStatus.NOT_BOOKABLE
   return (
     <span
-      className={`inline-flex items-center rounded border px-2 py-1 font-ticket text-xs font-semibold tracking-wide ${styles[availability.status]}`}
+      className={`inline-flex items-center rounded border px-2 py-1 font-ticket text-xs font-semibold tracking-wide ${styles[status]}`}
     >
-      {availability.raw}
+      {availability?.raw || fallbackText}
     </span>
   )
 }

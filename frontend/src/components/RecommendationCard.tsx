@@ -63,9 +63,8 @@ export function RecommendationCard({
 
   return (
     <article
-      className={`flex h-full flex-col justify-between overflow-hidden rounded-xl border bg-paper-50 shadow-sm transition-shadow hover:shadow-md ${
-        highlight ? 'border-signal-amber ring-1 ring-signal-amber/40' : 'border-rail-200'
-      }`}
+      className={`flex h-full flex-col justify-between overflow-hidden rounded-xl border bg-paper-50 shadow-sm transition-shadow hover:shadow-md ${highlight ? 'border-signal-amber ring-1 ring-signal-amber/40' : 'border-rail-200'
+        }`}
     >
       {/* Stub: perforated edge with punched holes */}
       <div className="relative border-b-2 border-dashed border-rail-200 px-5 pb-4 pt-5">
@@ -80,9 +79,8 @@ export function RecommendationCard({
 
         <div className="flex items-center justify-between gap-2">
           <span
-            className={`rounded-sm px-2 py-0.5 font-ticket text-[11px] font-bold uppercase tracking-[0.2em] ${
-              highlight ? 'bg-signal-amber text-rail-950' : 'bg-rail-200/60 text-rail-700'
-            }`}
+            className={`rounded-sm px-2 py-0.5 font-ticket text-xs font-bold uppercase tracking-widest ${highlight ? 'bg-signal-amber text-rail-950' : 'bg-rail-200/60 text-rail-700'
+              }`}
           >
             {highlight ? '#1 · Best bet' : `#${rec.rank}`}
           </span>
@@ -97,11 +95,10 @@ export function RecommendationCard({
           </p>
           {showCoverage && (
             <span
-              className={`shrink-0 rounded px-2 py-1 font-ticket text-[11px] font-semibold uppercase tracking-[0.12em] ${
-                rec.coverage_pct >= 1.0
+              className={`shrink-0 rounded px-2 py-1 font-ticket text-xs font-semibold uppercase tracking-wider ${rec.coverage_pct >= 1.0
                   ? 'border border-signal-green/40 bg-signal-green/15 text-signal-green-deep'
                   : 'border border-signal-amber/40 bg-signal-amber/15 text-signal-amber-deep'
-              }`}
+                }`}
             >
               {Math.round(rec.coverage_pct * 100)}% coverage
             </span>
@@ -117,7 +114,7 @@ export function RecommendationCard({
         <p className="text-sm leading-relaxed text-rail-950">{buildAction(rec, quota)}</p>
 
         <div>
-          <p className="mb-1 font-ticket text-[11px] uppercase tracking-[0.18em] text-rail-700">
+          <p className="mb-1 font-ticket text-xs uppercase tracking-widest text-rail-700">
             Confirmation chance
           </p>
           <ProbabilityMeter probability={rec.probability} />

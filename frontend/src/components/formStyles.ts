@@ -1,6 +1,6 @@
 // Shared field styling for the heritage-ticket forms (seat-finder + train search).
 export const LABEL =
-  'block font-ticket text-[11px] font-medium uppercase tracking-[0.18em] text-rail-700'
+  'block font-ticket text-xs font-medium uppercase tracking-widest text-rail-700'
 
 export const FIELD =
   'mt-1.5 w-full rounded-md border border-rail-200 bg-white px-3 py-2.5 font-ticket text-sm text-rail-950 ' +
