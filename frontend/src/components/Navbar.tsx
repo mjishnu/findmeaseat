@@ -3,20 +3,15 @@ import { clsx } from 'clsx'
 import { NavLink, useLocation } from 'react-router-dom'
 import { Menu, X, Train, Search, type LucideIcon } from 'lucide-react'
 
-export const ROUTES = {
-  TRAIN_SEARCH: '/train-search',
-  SEAT_FINDER: '/seat-finder',
-} as const
-
-export interface NavItem {
+interface NavItem {
   to: string
   label: string
   icon: LucideIcon
 }
 
-export const NAV: readonly NavItem[] = [
-  { to: ROUTES.TRAIN_SEARCH, label: 'Train Search', icon: Train },
-  { to: ROUTES.SEAT_FINDER, label: 'Seat Finder', icon: Search },
+const NAV: readonly NavItem[] = [
+  { to: '/train-search', label: 'Train Search', icon: Train },
+  { to: '/seat-finder', label: 'Seat Finder', icon: Search },
 ] as const
 
 export function Navbar() {
@@ -24,9 +19,11 @@ export function Navbar() {
   const location = useLocation()
 
   // Close mobile menu whenever the route changes
-  useEffect(() => {
+  const [prevPath, setPrevPath] = useState(location.pathname)
+  if (prevPath !== location.pathname) {
+    setPrevPath(location.pathname)
     setMenuOpen(false)
-  }, [location.pathname])
+  }
 
   // Close on Escape key
   useEffect(() => {
@@ -61,7 +58,7 @@ export function Navbar() {
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:max-w-6xl sm:px-8 sm:py-5">
           {/* ── Brand ──────────────────────────────────────────────────── */}
           <NavLink
-            to={ROUTES.TRAIN_SEARCH}
+            to="/train-search"
             className="group flex items-center gap-2.5 transition-opacity hover:opacity-90 sm:gap-3"
           >
             {/* Decorative amber rail mark */}

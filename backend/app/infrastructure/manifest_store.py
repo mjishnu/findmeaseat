@@ -19,6 +19,8 @@ class RouteManifestEntry(ManifestEntry):
     train_number: str = ""
     train_id: str | None = None  # set after header phase
     train_name: str | None = None
+    running_days: str | None = None
+    classes: list[str] = field(default_factory=list)
 
 
 # --- Seat finder ---

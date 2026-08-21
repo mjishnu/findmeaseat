@@ -4,6 +4,7 @@ import {
   type ClassAvailability,
   type TrainBetween,
   type TrainsBetweenResponse,
+  type TravelClass,
 } from '../api'
 import { ErrorBanner } from './ErrorBanner'
 import { TrainBetweenCard } from './TrainBetweenCard'
@@ -12,7 +13,7 @@ interface TrainSearchResultsProps {
   data: TrainsBetweenResponse
   quota: BookingQuota
   quotaLoading: boolean
-  onFindSeat: (train: TrainBetween) => void
+  onFindSeat: (train: TrainBetween, travelClass?: TravelClass) => void
   classesFor: (train: TrainBetween) => ClassAvailability[]
 }
 
@@ -38,7 +39,7 @@ export function TrainSearchResults({ data, quota, quotaLoading, onFindSeat, clas
           {source} ➝ {destination}
           <span className="text-paper-50/60"> · {prettyDate(journey_date)}</span>
         </p>
-        <p className="font-ticket text-[11px] uppercase tracking-[0.18em] text-paper-50/60">
+        <p className="font-ticket text-xs uppercase tracking-widest text-paper-50/60">
           {trains.length} {trains.length === 1 ? 'train' : 'trains'} ·{' '}
           {QUOTAS.find((q) => q.value === quota)?.label ?? quota}
         </p>

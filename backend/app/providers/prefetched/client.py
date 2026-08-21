@@ -43,14 +43,19 @@ def to_int(value: str | float | None) -> int:
         return -1
 
 
-def parse_erail_header(body: str) -> tuple[str, str] | None:
-    """Parse client-stripped erail header JSON → (train_id, train_name)."""
+def parse_erail_header(body: str) -> dict[str, Any] | None:
+    """Parse client-stripped erail header JSON → dict with train_id, train_name, running_days, classes."""
     if not body:
         return None
     try:
         data = json.loads(body)
         if isinstance(data, dict) and "train_id" in data and "train_name" in data:
-            return str(data["train_id"]), str(data["train_name"])
+            return {
+                "train_id": str(data["train_id"]),
+                "train_name": str(data["train_name"]),
+                "running_days": str(data.get("running_days") or "1111111"),
+                "classes": list(data.get("classes") or []),
+            }
     except (json.JSONDecodeError, TypeError):
         pass
     return None

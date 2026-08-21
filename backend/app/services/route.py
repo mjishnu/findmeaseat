@@ -19,6 +19,7 @@ from app.schemas import (
     ManifestResponse,
     StationStop,
     TrainRoute,
+    TravelClass,
 )
 
 
@@ -54,7 +55,10 @@ async def process_manifest(
         parsed = parse_erail_header(result.body)
         if parsed is None:
             raise TrainNotFoundError(entry.train_number)
-        entry.train_id, entry.train_name = parsed
+        entry.train_id = parsed["train_id"]
+        entry.train_name = parsed["train_name"]
+        entry.running_days = parsed["running_days"]
+        entry.classes = parsed["classes"]
         entry.phase = "route"
         mid = ManifestCache.put(entry)
         return ManifestResponse(
@@ -67,10 +71,18 @@ async def process_manifest(
             raise ProviderUnavailableError(
                 "erail TRAINROUTE returned no parseable stops"
             )
+        valid_classes: list[TravelClass] = []
+        for c in entry.classes:
+            try:
+                valid_classes.append(TravelClass(c))
+            except ValueError:
+                pass
         route = TrainRoute(
             train_number=entry.train_number,
             train_name=entry.train_name or "",
             stations=[StationStop(**s) for s in stops],
+            running_days=entry.running_days or "1111111",
+            classes=valid_classes,
         )
         await RouteCache.put(entry.train_number, route)
         return route

@@ -111,7 +111,26 @@ function stripErailHeader(body: string): string {
     }
     const d2 = segs[1].split('~').filter((x) => x !== '')
     if (d2.length > 12 && d1.length > 2) {
-      return JSON.stringify({ train_id: d2[12], train_name: d1[2] })
+      const runningDays = d1.find((x) => x.length === 7 && /^[01]{7}$/.test(x)) || '1111111'
+      const classes: string[] = []
+      const known = new Set(['1A', '2A', '3A', '3E', 'CC', 'EC', 'EA', 'SL', '2S', 'FC'])
+      for (const item of d2) {
+        if (item.includes('|') && item.includes(':')) {
+          const parts = item.split('|')
+          for (const p of parts) {
+            const code = p.split(':')[0]
+            if (known.has(code) && !classes.includes(code)) {
+              classes.push(code)
+            }
+          }
+        }
+      }
+      return JSON.stringify({
+        train_id: d2[12],
+        train_name: d1[2],
+        running_days: runningDays,
+        classes,
+      })
     }
   } catch {
     // fallback to raw body
@@ -122,7 +141,7 @@ function stripErailHeader(body: string): string {
 function stripErailRoute(body: string): string {
   if (!body) return body
   try {
-    const stops: { code: string; name: string; distance_km: number }[] = []
+    const stops: { code: string; name: string; distance_km: number; day_offset: number }[] = []
     for (const item of body.split('~^')) {
       const det = item.split('~').filter((x) => x !== '')
       if (det.length < 10) continue
@@ -130,7 +149,9 @@ function stripErailRoute(body: string): string {
       if (!distMatch) continue
       const dist = Math.round(parseFloat(distMatch[0].replace(/,/g, '')))
       if (isNaN(dist) || dist < 0) continue
-      stops.push({ code: det[1], name: det[2], distance_km: dist })
+      const rawDay = parseInt(det[7], 10) || 1
+      const dayOffset = Math.max(0, rawDay - 1)
+      stops.push({ code: det[1], name: det[2], distance_km: dist, day_offset: dayOffset })
     }
     if (stops.length > 0) {
       return JSON.stringify({ stops })
