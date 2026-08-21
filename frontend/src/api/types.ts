@@ -107,6 +107,8 @@ export interface FetchDescriptor {
 export interface ManifestResponse {
   manifest_id: string
   fetches: FetchDescriptor[]
+  total_count?: number
+  cached_count?: number
 }
 
 export interface FetchResult {
@@ -114,6 +116,26 @@ export interface FetchResult {
   status: number
   body: string
 }
+
+export type ManifestProgressPhase =
+  | 'init'
+  | 'routing'
+  | 'fetching_pairs'
+  | 'verifying'
+  | 'complete'
+
+export interface ManifestProgress {
+  phase: ManifestProgressPhase
+  completedUnits: number
+  totalUnits: number
+  percent: number // 0 to 100
+  label: string
+  subLabel?: string
+  currentPhaseStep?: number // 1 for checking routes, 2 for verifying availability
+  totalPhaseSteps?: number // 2
+}
+
+export type ProgressCallback = (progress: ManifestProgress) => void
 
 // ── Train search ─────────────────────────────────────────────────────────────
 

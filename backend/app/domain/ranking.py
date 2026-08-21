@@ -8,6 +8,12 @@ P_RAC = 0.95
 COST_PENALTY_WEIGHT = 0.10
 
 
+def compute_extra_fare(fare: int, user_leg_fare: int) -> int:
+    if fare <= 0 or user_leg_fare <= 0:
+        return 0
+    return max(0, fare - user_leg_fare)
+
+
 def confirmation_probability(
     parsed: ParsedAvailability, prediction_pct: int = -1
 ) -> float:

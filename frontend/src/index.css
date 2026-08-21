@@ -152,9 +152,11 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
+
   html {
     @apply font-sans;
   }
@@ -169,12 +171,13 @@
 .coverage-slider::-webkit-slider-runnable-track {
   height: var(--track-h);
   border-radius: 9999px;
-  background: linear-gradient(
-    to right,
-    oklch(0.3 0.07 255) 0%,           /* rail-900 filled portion  */
-    oklch(0.3 0.07 255) var(--fill, 50%),
-    oklch(0.87 0.03 255 / 0.5) var(--fill, 50%) /* rail-200 remainder */
-  );
+  background: linear-gradient(to right,
+      oklch(0.3 0.07 255) 0%,
+      /* rail-900 filled portion  */
+      oklch(0.3 0.07 255) var(--fill, 50%),
+      oklch(0.87 0.03 255 / 0.5) var(--fill, 50%)
+      /* rail-200 remainder */
+    );
 }
 
 .coverage-slider::-moz-range-track {
@@ -195,7 +198,8 @@
   width: var(--thumb-size);
   height: var(--thumb-size);
   border-radius: 50%;
-  background: oklch(0.78 0.16 75);     /* signal-amber */
+  background: oklch(0.78 0.16 75);
+  /* signal-amber */
   border: 2px solid white;
   box-shadow:
     0 1px 4px rgba(0, 0, 0, 0.18),

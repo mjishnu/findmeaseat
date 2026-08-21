@@ -2,6 +2,7 @@
 
 import type { BookingQuota } from './constants'
 import type {
+  ProgressCallback,
   RecommendationResponse,
   SearchQuery,
   Station,
@@ -12,14 +13,25 @@ import { ApiError } from './http'
 import { request } from './http'
 import { executeManifest } from './manifest'
 
-export function getTrainRoute(trainNumber: string, signal?: AbortSignal): Promise<TrainRoute> {
-  return executeManifest('/api/route/manifest', '/api/route/process',
-    { train_number: trainNumber }, signal)
+export function getTrainRoute(
+  trainNumber: string,
+  signal?: AbortSignal,
+  onProgress?: ProgressCallback,
+): Promise<TrainRoute> {
+  return executeManifest(
+    '/api/route/manifest',
+    '/api/route/process',
+    { train_number: trainNumber },
+    signal,
+    undefined,
+    onProgress,
+  )
 }
 
 export async function findOptimalRoute(
   query: SearchQuery,
   signal?: AbortSignal,
+  onProgress?: ProgressCallback,
 ): Promise<RecommendationResponse> {
   const execute = () =>
     executeManifest<RecommendationResponse>(
@@ -38,6 +50,7 @@ export async function findOptimalRoute(
       },
       signal,
       query.trainNumber,
+      onProgress,
     )
 
   try {
@@ -48,6 +61,16 @@ export async function findOptimalRoute(
       err.status === 404 &&
       err.message.toLowerCase().includes('not found') // if error is route not found
     ) {
+      onProgress?.({
+        phase: 'routing',
+        completedUnits: 0,
+        totalUnits: 2,
+        percent: 3,
+        label: 'Fetching train route & station list…',
+        subLabel: 'One-time route discovery',
+        currentPhaseStep: 1,
+        totalPhaseSteps: 2,
+      })
       await getTrainRoute(query.trainNumber, signal)
       return await execute()
     }
@@ -66,7 +89,14 @@ export function searchTrainsBetween(
   date: string,
   quota: BookingQuota = 'GN',
   signal?: AbortSignal,
+  onProgress?: ProgressCallback,
 ): Promise<TrainsBetweenResponse> {
-  return executeManifest('/api/trains-between/manifest', '/api/trains-between/process',
-    { source, destination, date, quota }, signal)
+  return executeManifest(
+    '/api/trains-between/manifest',
+    '/api/trains-between/process',
+    { source, destination, date, quota },
+    signal,
+    undefined,
+    onProgress,
+  )
 }

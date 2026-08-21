@@ -4,7 +4,11 @@ import datetime as dt
 
 from app.domain.dates import validate_journey_date
 from app.domain.pairs import enumerate_pairs
-from app.domain.ranking import confirmation_probability, sort_candidates
+from app.domain.ranking import (
+    compute_extra_fare,
+    confirmation_probability,
+    sort_candidates,
+)
 from app.exceptions import TrainNotFoundError
 from app.providers.base import RailDataProvider
 from app.schemas import (
@@ -175,7 +179,7 @@ def build_verified_response(
             )
             fare = override.get("fare", fare)
 
-        extra_fare = fare - user_leg_fare
+        extra_fare = compute_extra_fare(fare, user_leg_fare)
 
         updated_candidates.append(
             Candidate(

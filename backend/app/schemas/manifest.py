@@ -14,6 +14,8 @@ class FetchDescriptor(BaseModel):
 class ManifestResponse(BaseModel):
     manifest_id: str
     fetches: list[FetchDescriptor]
+    total_count: int | None = None
+    cached_count: int | None = None
 
 
 class FetchResult(BaseModel):
