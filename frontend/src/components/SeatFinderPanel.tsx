@@ -5,6 +5,7 @@ import {
   DEFAULT_TRAVEL_CLASS,
   findOptimalRoute,
   type BookingQuota,
+  type ManifestProgress,
   type RecommendationResponse,
   type SearchQuery,
   type TravelClass,
@@ -12,6 +13,7 @@ import {
 import { ErrorBanner } from './ErrorBanner'
 import { ResultsList } from './ResultsList'
 import { SearchForm, type SearchPrefill } from './SearchForm'
+import { SearchProgressBar } from './SearchProgressBar'
 import { SkeletonResults } from './SkeletonResults'
 import { SwitchSuggestionBanner } from './SwitchSuggestionBanner'
 
@@ -28,6 +30,7 @@ interface SeatFinderPanelProps {
 
 export function SeatFinderPanel({ initialPrefill }: SeatFinderPanelProps) {
   const [results, setResults] = useState<ResultsState>({ status: 'idle' })
+  const [progress, setProgress] = useState<ManifestProgress | null>(null)
   const [lastQuery, setLastQuery] = useState<SearchQuery | null>(null)
   const [travelClass, setTravelClass] = useState<TravelClass>(initialPrefill?.travelClass ?? DEFAULT_TRAVEL_CLASS)
   const [quota, setQuota] = useState<BookingQuota>(initialPrefill?.quota ?? DEFAULT_QUOTA)
@@ -41,6 +44,7 @@ export function SeatFinderPanel({ initialPrefill }: SeatFinderPanelProps) {
     const controller = new AbortController()
     abortRef.current = controller
     setLastQuery(query) // remembered so the class banner can re-search in another class
+    setProgress(null)
     setResults({ status: 'loading' })
 
     // Keep browser URL in sync so searches are shareable and bookmarkable
@@ -68,7 +72,7 @@ export function SeatFinderPanel({ initialPrefill }: SeatFinderPanelProps) {
     window.history.replaceState(null, '', url.pathname + url.search)
 
     try {
-      const data = await findOptimalRoute(query, controller.signal)
+      const data = await findOptimalRoute(query, controller.signal, setProgress)
       setResults({ status: 'success', data })
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
@@ -113,13 +117,20 @@ export function SeatFinderPanel({ initialPrefill }: SeatFinderPanelProps) {
       {/* The visual skeleton is aria-hidden; this narrates search progress */}
       <p aria-live="polite" className="sr-only">
         {results.status === 'loading'
-          ? 'Checking combinations…'
+          ? progress
+            ? `${progress.label} ${progress.subLabel ? `(${progress.subLabel})` : ''} ${progress.percent}% complete`
+            : 'Checking combinations…'
           : results.status === 'success'
             ? `${results.data.recommendations.length} recommendations found`
             : ''}
       </p>
 
-      {results.status === 'loading' && <SkeletonResults />}
+      {results.status === 'loading' && (
+        <div className="space-y-4">
+          <SearchProgressBar progress={progress} />
+          <SkeletonResults />
+        </div>
+      )}
       {results.status === 'error' && <ErrorBanner>{results.message}</ErrorBanner>}
       {results.status === 'success' && (
         <>

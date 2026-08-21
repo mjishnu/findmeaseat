@@ -1,7 +1,7 @@
 // ── Manifest execution & payload stripping ──────────────────────────────────
 // Internal module — not re-exported from the barrel.
 
-import type { FetchDescriptor, FetchResult, ManifestResponse } from './types'
+import type { FetchDescriptor, FetchResult, ManifestResponse, ProgressCallback } from './types'
 import { postRequest } from './http'
 
 // ── Confirmtkt search pre-parser ─────────────────────────────────────────────
@@ -189,18 +189,94 @@ export async function executeManifest<T>(
   body: unknown,
   signal?: AbortSignal,
   filterTrainNumber?: string,
+  onProgress?: ProgressCallback,
 ): Promise<T> {
+  onProgress?.({
+    phase: 'init',
+    completedUnits: 0,
+    totalUnits: 1,
+    percent: 5,
+    label: 'Finding station combinations…',
+    subLabel: 'Preparing route search',
+    currentPhaseStep: 1,
+    totalPhaseSteps: 2,
+  })
+
   let response = await postRequest(manifestUrl, body, signal)
 
   while (isContinue(response)) {
+    const phaseConfig = response.fetches[0]?.fetch_id.startsWith('verify:')
+      ? {
+          phase: 'verifying' as const,
+          label: 'Verifying seat availability for best options…',
+          unitNoun: 'options verified',
+          basePercent: 90,
+          maxPercent: 98,
+          step: 2,
+        }
+      : {
+          phase: 'fetching_pairs' as const,
+          label: 'Checking seat availability across route combinations…',
+          unitNoun: 'routes checked',
+          basePercent: 5,
+          maxPercent: 90,
+          step: 1,
+        }
+
+    const cachedCount = response.cached_count ?? 0
+    const totalPairs = response.total_count ?? (cachedCount + response.fetches.length)
+    let completedFetches = 0
+
+    const reportProgress = () => {
+      const currentCompleted = cachedCount + completedFetches
+      const fraction = totalPairs > 0 ? currentCompleted / totalPairs : 1
+      const percent = Math.round(
+        phaseConfig.basePercent + fraction * (phaseConfig.maxPercent - phaseConfig.basePercent),
+      )
+
+      onProgress?.({
+        phase: phaseConfig.phase,
+        completedUnits: currentCompleted,
+        totalUnits: totalPairs,
+        percent,
+        label: phaseConfig.label,
+        subLabel: `${currentCompleted} of ${totalPairs} ${phaseConfig.unitNoun}`,
+        currentPhaseStep: phaseConfig.step,
+        totalPhaseSteps: 2,
+      })
+    }
+
+    reportProgress()
+
     const results = await Promise.all(
-      response.fetches.map((f) => fetchWithRetry(f, signal, 3, filterTrainNumber)),
+      response.fetches.map(async (f) => {
+        const res = await fetchWithRetry(f, signal, 3, filterTrainNumber)
+        completedFetches++
+        reportProgress()
+        return res
+      }),
     )
+
     response = await postRequest(
       processUrl,
       { manifest_id: response.manifest_id, results },
       signal,
     )
+  }
+
+  if (onProgress) {
+    onProgress({
+      phase: 'complete',
+      completedUnits: 1,
+      totalUnits: 1,
+      percent: 100,
+      label: 'Search complete',
+      subLabel: 'Displaying results',
+      currentPhaseStep: 2,
+      totalPhaseSteps: 2,
+    })
+    // Brief split-second pause so the user sees 100% & the green checkmark before unmounting
+    await new Promise((resolve) => setTimeout(resolve, 300))
   }
 
   return response as T

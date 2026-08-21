@@ -234,9 +234,7 @@ async def _process_fetch_phase(
             parsed_segments[r.fetch_id] = segment_data
             board, alight = r.fetch_id.split("|")
             stripped_data = {
-                k: segment_data[k]
-                for k in AVAILABILITY_CACHE_KEYS
-                if k in segment_data
+                k: segment_data[k] for k in AVAILABILITY_CACHE_KEYS if k in segment_data
             }
             await SeatFinderSegmentCache.put_field(
                 board,

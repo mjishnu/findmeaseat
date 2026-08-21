@@ -1,6 +1,10 @@
 import asyncio
 
-from app.domain.ranking import confirmation_probability, sort_candidates
+from app.domain.ranking import (
+    compute_extra_fare,
+    confirmation_probability,
+    sort_candidates,
+)
 from app.exceptions import ProviderUnavailableError
 from app.providers.base import RailDataProvider
 from app.schemas import (
@@ -42,7 +46,7 @@ async def evaluate_pair(
     prediction = await provider.get_seat_prediction(
         board.code, alight.code, travel_class, quota
     )
-    extra_fare = fare - user_leg_fare
+    extra_fare = compute_extra_fare(fare, user_leg_fare)
     probability = confirmation_probability(parsed, prediction)
     return Candidate(
         board=board,

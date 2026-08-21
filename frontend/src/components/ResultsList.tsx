@@ -19,7 +19,13 @@ export function ResultsList({ data }: ResultsListProps) {
           <span className="text-paper-50/60"> · {data.travel_class}</span>
         </p>
         <div className="flex items-center gap-3">
-          {leg.availability && <StatusBadge availability={leg.availability} tone="dark" />}
+          {leg.availability ? (
+            <StatusBadge availability={leg.availability} tone="dark" />
+          ) : (
+            <span className="rounded bg-signal-red/20 px-2 py-0.5 font-ticket text-[11px] font-semibold uppercase tracking-[0.08em] text-signal-red-bright">
+              Not Available
+            </span>
+          )}
           <p className="font-ticket text-[11px] uppercase tracking-[0.18em] text-paper-50/60">
             {data.pairs_evaluated} combos checked
             {data.pairs_skipped > 0 && ` · ${data.pairs_skipped} unavailable`}
