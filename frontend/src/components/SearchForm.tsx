@@ -89,7 +89,7 @@ export function SearchForm({
         setRouteError(
           err instanceof ApiError
             ? err.message
-            : 'Could not reach the server — is the backend running?',
+            : 'Could not reach the server',
         )
       })
     return () => controller.abort()
@@ -141,7 +141,7 @@ export function SearchForm({
             maxLength={5}
             value={trainNumber}
             onChange={(e) => handleTrainNumberChange(e.target.value)}
-            className={`${FIELD} tracking-[0.3em]`}
+            className={`${FIELD} tracking-widest`}
           />
           {/* Persistent live region so screen readers hear lookup results */}
           <div aria-live="polite" className="mt-1.5 min-h-4">
@@ -292,7 +292,7 @@ export function SearchForm({
       <div className="mt-5 overflow-hidden rounded-lg border border-rail-200 bg-paper-100/60">
         {/* Toggle header */}
         <label className="group flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-paper-200/40">
-          <span className="relative inline-flex h-[22px] w-[40px] shrink-0 items-center">
+          <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
             <input
               id="partialToggle"
               type="checkbox"
@@ -300,14 +300,14 @@ export function SearchForm({
               onChange={(e) => onPartialChange(e.target.checked)}
               className="peer sr-only"
             />
-            <span className="block h-[22px] w-[40px] rounded-full bg-rail-200 shadow-inner transition-colors duration-200 peer-checked:bg-rail-900 peer-focus-visible:ring-2 peer-focus-visible:ring-rail-500 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-paper-50" />
-            <span className="absolute left-[3px] top-[3px] h-4 w-4 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.2)] transition-transform duration-200 peer-checked:translate-x-[18px]" />
+            <span className="block h-6 w-11 rounded-full bg-rail-200 shadow-inner transition-colors duration-200 peer-checked:bg-rail-900 peer-focus-visible:ring-2 peer-focus-visible:ring-rail-500 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-paper-50" />
+            <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 peer-checked:translate-x-5" />
           </span>
           <div className="flex flex-col">
-            <span className="font-ticket text-xs font-semibold uppercase tracking-[0.15em] text-rail-700">
+            <span className="font-ticket text-xs font-semibold uppercase tracking-widest text-rail-700">
               Allow Partial Route Seats
             </span>
-            <span className="mt-0.5 text-[11px] leading-tight text-rail-500">
+            <span className="mt-0.5 text-xs leading-tight text-rail-500">
               Find confirmed seats covering part of your trip when full route is not available
             </span>
           </div>
@@ -315,7 +315,7 @@ export function SearchForm({
 
         {/* Expandable sub-controls */}
         <div
-          className="grid transition-[grid-template-rows] duration-300 ease-in-out"
+          className="grid transition-all duration-300 ease-in-out"
           style={{ gridTemplateRows: partial ? '1fr' : '0fr' }}
         >
           <div className="overflow-hidden">
@@ -343,7 +343,7 @@ export function SearchForm({
                     style={{ '--fill': `${((Math.round(minCoveragePct * 100) - 10) / 90) * 100}%` } as React.CSSProperties}
                   />
                 </div>
-                <p className="mt-2 text-[11px] leading-relaxed text-rail-500">
+                <p className="mt-2 text-xs leading-relaxed text-rail-500">
                   Only show tickets covering at least this percentage of your total route
                 </p>
               </div>
@@ -353,7 +353,7 @@ export function SearchForm({
 
               {/* Require connect toggle */}
               <label className="group flex cursor-pointer items-center gap-3.5">
-                <span className="relative inline-flex h-[22px] w-[40px] shrink-0 items-center">
+                <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
                   <input
                     id="requireConnect"
                     type="checkbox"
@@ -361,14 +361,14 @@ export function SearchForm({
                     onChange={(e) => onRequireConnectChange(e.target.checked)}
                     className="peer sr-only"
                   />
-                  <span className="block h-[22px] w-[40px] rounded-full bg-rail-200 shadow-inner transition-colors duration-200 peer-checked:bg-rail-900 peer-focus-visible:ring-2 peer-focus-visible:ring-rail-500 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-paper-50" />
-                  <span className="absolute left-[3px] top-[3px] h-4 w-4 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.2)] transition-transform duration-200 peer-checked:translate-x-[18px]" />
+                  <span className="block h-6 w-11 rounded-full bg-rail-200 shadow-inner transition-colors duration-200 peer-checked:bg-rail-900 peer-focus-visible:ring-2 peer-focus-visible:ring-rail-500 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-paper-50" />
+                  <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 peer-checked:translate-x-5" />
                 </span>
                 <div className="flex flex-col">
-                  <span className="font-ticket text-[11px] font-semibold uppercase tracking-[0.15em] text-rail-700">
+                  <span className="font-ticket text-xs font-semibold uppercase tracking-widest text-rail-700">
                     Connect at Origin or Destination
                   </span>
-                  <span className="mt-0.5 text-[11px] leading-tight text-rail-500">
+                  <span className="mt-0.5 text-xs leading-tight text-rail-500">
                     Only show tickets starting at your boarding station or ending at your destination station
                   </span>
                 </div>
@@ -383,7 +383,7 @@ export function SearchForm({
       <button
         type="submit"
         aria-disabled={searching || !route}
-        className="mt-5 w-full rounded-md bg-rail-900 px-6 py-3 font-ticket text-sm font-semibold uppercase tracking-[0.2em] text-paper-50 transition-colors hover:bg-rail-700 focus:outline-none focus:ring-2 focus:ring-rail-500 focus:ring-offset-2 focus:ring-offset-paper-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 sm:w-auto"
+        className="mt-5 w-full rounded-md bg-rail-900 px-6 py-3 font-ticket text-sm font-semibold uppercase tracking-widest text-paper-50 transition-colors hover:bg-rail-700 focus:outline-none focus:ring-2 focus:ring-rail-500 focus:ring-offset-2 focus:ring-offset-paper-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 sm:w-auto"
       >
         {searching ? 'Checking combinations…' : 'Find me a seat'}
       </button>
