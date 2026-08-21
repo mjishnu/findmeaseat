@@ -1,6 +1,4 @@
-import { clsx } from 'clsx'
 import {
-  NavLink,
   Navigate,
   Route,
   Routes,
@@ -16,16 +14,8 @@ import {
   type DeepLinkPayload,
   type TrainSearchPrefill,
 } from './components/TrainSearchPanel'
-
-const ROUTES = {
-  TRAIN_SEARCH: '/train-search',
-  SEAT_FINDER: '/seat-finder',
-} as const
-
-const NAV = [
-  { to: ROUTES.TRAIN_SEARCH, label: 'Train Search' },
-  { to: ROUTES.SEAT_FINDER, label: 'Seat Finder' },
-] as const
+import { Navbar, ROUTES } from './components/Navbar'
+import { Footer } from './components/Footer'
 
 function parsePrefill(params: URLSearchParams): SearchPrefill | undefined {
   const trainNumber = params.get('train') ?? undefined
@@ -103,48 +93,18 @@ function TrainSearchRoute() {
 export default function App() {
   return (
     <div className="min-h-dvh bg-paper-100 font-body text-rail-950">
-      <header className="border-t-4 border-signal-amber bg-rail-950 text-paper-50">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-4 sm:px-6">
-          <p className="font-display text-2xl font-bold tracking-tight">
-            FindMeASeat<span className="text-signal-amber">.</span>
-          </p>
-          <nav
-            aria-label="Tools"
-            className="flex items-center gap-1 font-ticket text-xs uppercase tracking-widest"
-          >
-            {NAV.map((n) => (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                className={({ isActive }) =>
-                  clsx(
-                    'border-b-2 px-2 py-1 transition-colors',
-                    isActive
-                      ? 'border-signal-amber text-paper-50'
-                      : 'border-transparent text-paper-50/60 hover:text-paper-50',
-                  )
-                }
-              >
-                {n.label}
-              </NavLink>
-            ))}
-          </nav>
-        </div>
-      </header>
+      <Navbar />
 
       {/* pb leaves room for the fixed footer so cards don't hide behind it */}
-      <main className="mx-auto max-w-5xl px-4 pb-28 pt-10 sm:px-6 sm:pt-14">
+      <main className="mx-auto max-w-5xl px-4 pb-24 pt-8 sm:px-6 sm:pt-12">
         <Routes>
           <Route path={ROUTES.TRAIN_SEARCH} element={<TrainSearchRoute />} />
           <Route path={ROUTES.SEAT_FINDER} element={<SeatFinderRoute />} />
           <Route path="*" element={<Navigate to={ROUTES.TRAIN_SEARCH} replace />} />
         </Routes>
       </main>
-      <footer className="fixed inset-x-0 bottom-0 z-10 border-t border-rail-200 bg-paper-100 py-4 shadow-sm">
-        <p className="mx-auto max-w-5xl px-4 text-center text-xs text-rail-700 sm:px-6">
-          Probabilities are heuristics based on public waitlist-clearance patterns, not guarantees.
-        </p>
-      </footer>
+
+      <Footer />
     </div>
   )
 }
