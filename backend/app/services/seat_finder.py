@@ -77,10 +77,11 @@ async def create_manifest(
         min_coverage_pct,
         require_connect,
     )
-    date_str = format_date(date)
     pairs = []
     for b, a in all_pairs:
-        if not await DeadPairCache.get(train_number, b.code, a.code, date_str):
+        pair_date = cached_route.boarding_date_for(b.code, source, date)
+        pair_date_str = format_date(pair_date)
+        if not await DeadPairCache.get(train_number, b.code, a.code, pair_date_str):
             pairs.append((b, a))
 
     fetch_group = quota.fetch_group
@@ -90,18 +91,21 @@ async def create_manifest(
     for b, a in pairs:
         fid = f"{b.code}|{a.code}"
         fetch_id_to_pair[fid] = (b, a)
+        pair_date = cached_route.boarding_date_for(b.code, source, date)
+        pair_date_str = format_date(pair_date)
+
         hit = await SeatFinderSegmentCache.get_field(
-            b.code, a.code, date_str, fetch_group, train_number
+            b.code, a.code, pair_date_str, fetch_group, train_number
         )
         if hit is None:
             hit = await TrainSearchCache.get_field(
-                b.code, a.code, date_str, fetch_group, train_number
+                b.code, a.code, pair_date_str, fetch_group, train_number
             )
         if hit is not None:
             cached_segs[fid] = hit
         else:
             fetches.append(
-                build_confirmtkt_descriptor(b.code, a.code, date, quota, fid)
+                build_confirmtkt_descriptor(b.code, a.code, pair_date, quota, fid)
             )
 
     entry = SeatFinderEntry(
@@ -164,18 +168,23 @@ async def _rank_and_build_verify_manifest(
         entry.min_coverage_pct,
         entry.require_connect,
     )
-    verify_fetches = [
-        build_availability_descriptor(
-            train_number=entry.train_number,
-            travel_class=entry.travel_class,
-            quota=entry.quota,
-            source=cand["board"]["code"],
-            destination=cand["alight"]["code"],
-            date=entry.journey_date,
-            fetch_id=f"verify:{i}",
+    verify_fetches = []
+    for i, cand in enumerate(ranked_data["candidates"]):
+        board_code = cand["board"]["code"]
+        cand_date = entry.route.boarding_date_for(
+            board_code, entry.user_source, entry.journey_date
         )
-        for i, cand in enumerate(ranked_data["candidates"])
-    ]
+        verify_fetches.append(
+            build_availability_descriptor(
+                train_number=entry.train_number,
+                travel_class=entry.travel_class,
+                quota=entry.quota,
+                source=board_code,
+                destination=cand["alight"]["code"],
+                date=cand_date,
+                fetch_id=f"verify:{i}",
+            )
+        )
 
     if not verify_fetches:
         return build_verified_response(ranked_data, {})
@@ -193,8 +202,8 @@ async def _process_fetch_phase(
     entry: SeatFinderEntry, results: list[FetchResult]
 ) -> ManifestResponse | RecommendationResponse:
     """Parse confirmtkt results, cache segments, mark dead pairs, then rank."""
-    if not entry.fetch_id_to_pair or entry.route is None:
-        raise InvalidManifestError("Missing pairs or route in entry")
+    if not entry.fetch_id_to_pair:
+        raise InvalidManifestError("Missing pairs in entry")
 
     submitted_ids = [r.fetch_id for r in results]
     submitted_set = set(submitted_ids)
@@ -208,13 +217,15 @@ async def _process_fetch_phase(
         raise InvalidManifestError("Unknown fetch_id")
 
     fetch_group = entry.quota.fetch_group
-    date_str = format_date(entry.journey_date)
 
     for fetch_id in expected_ids:
         if fetch_id not in submitted_set:
             board, alight = entry.fetch_id_to_pair[fetch_id]
+            pair_date = entry.route.boarding_date_for(
+                board.code, entry.user_source, entry.journey_date
+            )
             await DeadPairCache.put(
-                entry.train_number, board.code, alight.code, date_str
+                entry.train_number, board.code, alight.code, format_date(pair_date)
             )
 
     parsed_segments: dict[str, dict] = {}
@@ -232,14 +243,17 @@ async def _process_fetch_phase(
         if train_list and isinstance(train_list[0], dict):
             segment_data = train_list[0]
             parsed_segments[r.fetch_id] = segment_data
-            board, alight = r.fetch_id.split("|")
+            board_stop, alight_stop = entry.fetch_id_to_pair[r.fetch_id]
+            pair_date = entry.route.boarding_date_for(
+                board_stop.code, entry.user_source, entry.journey_date
+            )
             stripped_data = {
                 k: segment_data[k] for k in AVAILABILITY_CACHE_KEYS if k in segment_data
             }
             await SeatFinderSegmentCache.put_field(
-                board,
-                alight,
-                date_str,
+                board_stop.code,
+                alight_stop.code,
+                format_date(pair_date),
                 fetch_group,
                 entry.train_number,
                 stripped_data,
@@ -257,7 +271,6 @@ async def _process_verify_phase(
         raise InvalidManifestError("Missing verify candidates or context in entry")
 
     fetch_group = entry.quota.fetch_group
-    date_str = format_date(entry.journey_date)
     live_overrides = {}
 
     for r in results:
@@ -282,8 +295,14 @@ async def _process_verify_phase(
 
         cached_parsed = cand.get("parsed", {})
         if override["availability"].raw != cached_parsed.get("raw"):
-            await SeatFinderSegmentCache.delete(board, alight, date_str, fetch_group)
-            await TrainSearchCache.delete(board, alight, date_str, fetch_group)
+            cand_date = entry.route.boarding_date_for(
+                board, entry.user_source, entry.journey_date
+            )
+            cand_date_str = format_date(cand_date)
+            await SeatFinderSegmentCache.delete(
+                board, alight, cand_date_str, fetch_group
+            )
+            await TrainSearchCache.delete(board, alight, cand_date_str, fetch_group)
 
     ranked_data = {
         "candidates": entry.verify_candidates,

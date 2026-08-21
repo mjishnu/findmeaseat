@@ -1,6 +1,14 @@
 services:
   redis:
     image: redis:7-alpine
+    command: >
+      redis-server
+      --save 60 1
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy volatile-lru
+    volumes:
+      - redis_data:/data
     expose:
       - "6379"
     restart: unless-stopped
@@ -24,3 +32,7 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  redis_data:
+

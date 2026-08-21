@@ -14,7 +14,7 @@ import {
   type DeepLinkPayload,
   type TrainSearchPrefill,
 } from './components/TrainSearchPanel'
-import { Navbar, ROUTES } from './components/Navbar'
+import { Navbar } from './components/Navbar'
 import { Footer } from './components/Footer'
 
 function parsePrefill(params: URLSearchParams): SearchPrefill | undefined {
@@ -74,9 +74,11 @@ function TrainSearchRoute() {
     }
     if (p.sourceName) searchParams.fromName = p.sourceName
     if (p.destinationName) searchParams.toName = p.destinationName
+    if (p.travelClass) searchParams.class = p.travelClass
+    if (p.quota) searchParams.quota = p.quota
 
     navigate({
-      pathname: ROUTES.SEAT_FINDER,
+      pathname: '/seat-finder',
       search: `?${createSearchParams(searchParams)}`,
     })
   }
@@ -98,9 +100,9 @@ export default function App() {
       {/* pb leaves room for the fixed footer so cards don't hide behind it */}
       <main className="mx-auto max-w-5xl px-4 pb-24 pt-8 sm:px-6 sm:pt-12">
         <Routes>
-          <Route path={ROUTES.TRAIN_SEARCH} element={<TrainSearchRoute />} />
-          <Route path={ROUTES.SEAT_FINDER} element={<SeatFinderRoute />} />
-          <Route path="*" element={<Navigate to={ROUTES.TRAIN_SEARCH} replace />} />
+          <Route path="/train-search" element={<TrainSearchRoute />} />
+          <Route path="/seat-finder" element={<SeatFinderRoute />} />
+          <Route path="*" element={<Navigate to="/train-search" replace />} />
         </Routes>
       </main>
 

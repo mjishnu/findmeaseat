@@ -33,6 +33,7 @@
   --color-signal-amber-deep: oklch(0.52 0.12 75);
   --color-signal-amber-bright: oklch(0.88 0.12 75);
   --color-signal-red: oklch(0.52 0.19 25);
+  --color-signal-red-deep: oklch(0.42 0.16 25);
   --color-signal-red-bright: oklch(0.82 0.12 25);
 }
 

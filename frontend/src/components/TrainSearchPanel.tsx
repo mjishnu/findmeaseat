@@ -6,6 +6,7 @@ import {
   type ClassAvailability,
   type TrainBetween,
   type TrainsBetweenResponse,
+  type TravelClass,
 } from '../api'
 import { ErrorBanner } from './ErrorBanner'
 import { SkeletonResults } from './SkeletonResults'
@@ -22,6 +23,8 @@ export interface DeepLinkPayload {
   destination: string
   destinationName?: string
   date: string
+  travelClass?: TravelClass
+  quota?: BookingQuota
 }
 
 export interface TrainSearchPrefill {
@@ -101,7 +104,7 @@ export function TrainSearchPanel({ onDeepLink, initialPrefill }: TrainSearchPane
     }
   }
 
-  function handleFindSeat(train: TrainBetween) {
+  function handleFindSeat(train: TrainBetween, travelClass?: TravelClass) {
     if (state.status !== 'success') return
     onDeepLink({
       trainNumber: train.train_number,
@@ -110,6 +113,8 @@ export function TrainSearchPanel({ onDeepLink, initialPrefill }: TrainSearchPane
       destination: train.to_code,
       destinationName: train.to_name,
       date: state.data.journey_date,
+      travelClass,
+      quota,
     })
   }
 

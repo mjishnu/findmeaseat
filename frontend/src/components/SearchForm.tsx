@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type SubmitEvent } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import {
   ApiError,
   getTrainRoute,
@@ -10,7 +11,14 @@ import {
   type TravelClass,
 } from '../api'
 import { FIELD, LABEL } from './formStyles'
-import { MAX_DATE, MIN_DATE } from '../lib/bookingDates'
+import {
+  findNextRunningDate,
+  isDayRunning,
+  MAX_DATE,
+  MIN_DATE,
+  shiftRunningDays,
+} from '../lib/bookingDates'
+import { JourneyDatePicker } from './JourneyDatePicker'
 
 export interface SearchPrefill {
   trainNumber?: string
@@ -95,6 +103,24 @@ export function SearchForm({
     return () => controller.abort()
   }, [trainNumber, retryToken])
 
+  // Filter available classes to those that exist on the route
+  const availableClasses =
+    route?.classes && route.classes.length > 0
+      ? TRAVEL_CLASSES.filter((c) => route.classes!.includes(c.value))
+      : TRAVEL_CLASSES
+
+  // Automatically adjust class if the previously chosen class is not offered on this train
+  useEffect(() => {
+    if (!route?.classes || route.classes.length === 0) return
+    const isOffered = route.classes.includes(travelClass)
+    if (!isOffered) {
+      const firstAvailable = TRAVEL_CLASSES.find((c) => route.classes!.includes(c.value))
+      if (firstAvailable) {
+        onTravelClassChange(firstAvailable.value)
+      }
+    }
+  }, [route, travelClass, onTravelClassChange])
+
   // Auto-run the deep-linked search once immediately when inputs are present.
   // The ref guard keeps it to a single fire.
   useEffect(() => {
@@ -103,6 +129,13 @@ export function SearchForm({
     autoSearchPending.current = false
     onSearch({ trainNumber, source, destination, date, travelClass, quota, partial, minCoveragePct, requireConnect })
   }, [source, destination, date, searching, trainNumber, travelClass, quota, partial, minCoveragePct, requireConnect, onSearch])
+
+  const selectedSourceStop = route?.stations.find((s) => s.code === source)
+  const dayOffset = selectedSourceStop?.day_offset ?? 0
+  const effectiveRunningDays = shiftRunningDays(route?.running_days, dayOffset)
+
+  const isDateRunning = isDayRunning(date, effectiveRunningDays)
+  const nextRunningDate = !isDateRunning && date ? findNextRunningDate(date, effectiveRunningDays) : null
 
   function handleSubmit(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -146,9 +179,11 @@ export function SearchForm({
           {/* Persistent live region so screen readers hear lookup results */}
           <div aria-live="polite" className="mt-1.5 min-h-4">
             {route && (
-              <p className="text-xs text-signal-green-deep">
-                {route.train_name} · {route.stations.length} stops
-              </p>
+              <div>
+                <p className="text-xs text-signal-green-deep font-medium">
+                  {route.train_name} · {route.stations.length} stops
+                </p>
+              </div>
             )}
             {routeError && (
               <p role="alert" className="text-xs text-signal-red">
@@ -159,7 +194,7 @@ export function SearchForm({
                     setRouteError(null)
                     setRetryToken((t) => t + 1)
                   }}
-                  className="font-semibold underline underline-offset-2 hover:text-rail-950"
+                  className="font-semibold underline underline-offset-2 hover:text-rail-950 cursor-pointer"
                 >
                   Retry
                 </button>
@@ -233,20 +268,34 @@ export function SearchForm({
         </div>
 
         <div>
-          <label htmlFor="date" className={LABEL}>
+          <label htmlFor="journey-date" className={LABEL}>
             Journey date
           </label>
-          <input
-            id="date"
-            name="date"
-            type="date"
-            required
+          <JourneyDatePicker
+            id="journey-date"
+            value={date}
+            onChange={setDate}
             min={MIN_DATE}
             max={MAX_DATE}
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className={FIELD}
+            runningDays={effectiveRunningDays}
           />
+          {!isDateRunning && date && (
+            <div className="mt-1.5 flex flex-col gap-0.5">
+              <p className="flex items-center gap-1 text-[11px] font-medium text-amber-700">
+                <AlertTriangle className="size-3 shrink-0" />
+                <span>Train usually does not operate on this day</span>
+              </p>
+              {nextRunningDate && (
+                <button
+                  type="button"
+                  onClick={() => setDate(nextRunningDate)}
+                  className="text-left text-[11px] font-semibold text-rail-900 underline underline-offset-2 hover:text-signal-green-deep cursor-pointer"
+                >
+                  Next running: {nextRunningDate}
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <div>
@@ -260,7 +309,7 @@ export function SearchForm({
             value={travelClass}
             onChange={(e) => onTravelClassChange(e.target.value as TravelClass)}
           >
-            {TRAVEL_CLASSES.map((c) => (
+            {availableClasses.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
               </option>
@@ -383,7 +432,7 @@ export function SearchForm({
       <button
         type="submit"
         aria-disabled={searching || !route}
-        className="mt-5 w-full rounded-md bg-rail-900 px-6 py-3 font-ticket text-sm font-semibold uppercase tracking-widest text-paper-50 transition-colors hover:bg-rail-700 focus:outline-none focus:ring-2 focus:ring-rail-500 focus:ring-offset-2 focus:ring-offset-paper-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 sm:w-auto"
+        className="mt-5 w-full rounded-md bg-rail-900 px-6 py-3 font-ticket text-sm font-semibold uppercase tracking-widest text-paper-50 transition-colors hover:bg-rail-700 focus:outline-none focus:ring-2 focus:ring-rail-500 focus:ring-offset-2 focus:ring-offset-paper-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 sm:w-auto cursor-pointer"
       >
         {searching ? 'Checking combinations…' : 'Find me a seat'}
       </button>

@@ -11,6 +11,7 @@ export interface StationStop {
   code: string
   name: string
   distance_km: number
+  day_offset?: number
 }
 
 export interface Station {
@@ -37,6 +38,8 @@ export interface ClassAvailability {
 
 export interface TrainRoute extends TrainIdentity {
   stations: StationStop[]
+  running_days?: string // "1111111", Mon→Sun
+  classes?: TravelClass[]
 }
 
 // ── Seat-finder ──────────────────────────────────────────────────────────────

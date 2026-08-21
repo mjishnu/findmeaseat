@@ -27,8 +27,8 @@ export function SwitchSuggestionBanner({
 }: SwitchSuggestionBannerProps) {
   if (alternatives.length === 0) return null
   return (
-    <div className="mt-6 rounded-xl border border-signal-green/40 bg-signal-green/10 p-4 sm:p-5">
-      <p className="font-ticket text-[11px] font-semibold uppercase tracking-[0.18em] text-signal-green-deep">
+    <div className="mt-6 rounded-xl border border-signal-green/30 bg-signal-green/10 p-4 sm:p-5">
+      <p className="font-ticket text-xs font-semibold uppercase tracking-widest text-signal-green-deep">
         Better odds in another class
       </p>
       <p className="mt-1 text-sm text-rail-700">
@@ -44,7 +44,7 @@ export function SwitchSuggestionBanner({
               key={alt.travel_class}
               type="button"
               onClick={() => onSwitch(alt.travel_class, alt.quota)}
-              className="group flex items-center gap-2 rounded-lg border border-rail-200 bg-paper-50 px-3 py-2 text-sm shadow-sm transition-colors hover:border-signal-green hover:bg-signal-green/10 focus:outline-none focus:ring-2 focus:ring-signal-green/40"
+              className="group flex items-center gap-2 rounded-lg border border-rail-200 bg-paper-50 px-3 py-2 text-sm shadow-sm transition-colors hover:border-signal-green/40 hover:bg-signal-green/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal-green/60"
               aria-label={`Switch to ${alt.travel_class} — ${alt.availability.raw}${delta ? `, ${delta}` : ''}`}
             >
               <span className="font-ticket font-bold tracking-wide text-rail-950">

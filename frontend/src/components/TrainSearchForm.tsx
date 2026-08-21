@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type SubmitEvent } from 'react'
 import { QUOTAS, type BookingQuota, type Station } from '../api'
 import { MAX_DATE, MIN_DATE } from '../lib/bookingDates'
 import { FIELD, LABEL } from './formStyles'
+import { JourneyDatePicker } from './JourneyDatePicker'
 import { StationAutocomplete } from './StationAutocomplete'
 import type { TrainSearchPrefill } from './TrainSearchPanel'
 
@@ -85,49 +86,50 @@ export function TrainSearchForm({
       onSubmit={handleSubmit}
       className="mt-10 rounded-xl border border-rail-200 bg-paper-50 p-5 shadow-sm sm:p-6"
     >
-      <div className="grid items-end gap-3 sm:grid-cols-[1fr_auto_1fr]">
-        <StationAutocomplete
-          label="From"
-          placeholder="New Delhi"
-          text={fromText}
-          onTextChange={setFromText}
-          station={fromStation}
-          onStationChange={setFromStation}
-        />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <div className="flex-1">
+          <StationAutocomplete
+            label="From"
+            placeholder="New Delhi"
+            text={fromText}
+            onTextChange={setFromText}
+            station={fromStation}
+            onStationChange={setFromStation}
+          />
+        </div>
         <button
           type="button"
           onClick={swap}
           aria-label="Swap From and To"
-          className="mx-auto flex size-10 items-center justify-center rounded-full border border-rail-200 bg-paper-100 text-rail-700 transition-colors hover:border-rail-500 hover:text-rail-950 focus:outline-none focus:ring-2 focus:ring-rail-500/30 sm:mb-1"
+          className="mx-auto flex size-10 shrink-0 items-center justify-center rounded-full border border-rail-200 bg-paper-100 text-rail-700 transition-colors hover:border-rail-500 hover:text-rail-950 focus:outline-none focus:ring-2 focus:ring-rail-500/30 sm:mb-1 cursor-pointer"
         >
           <span aria-hidden className="text-lg">
             ⇄
           </span>
         </button>
-        <StationAutocomplete
-          label="To"
-          placeholder="Mumbai Central"
-          text={toText}
-          onTextChange={setToText}
-          station={toStation}
-          onStationChange={setToStation}
-        />
+        <div className="flex-1">
+          <StationAutocomplete
+            label="To"
+            placeholder="Mumbai Central"
+            text={toText}
+            onTextChange={setToText}
+            station={toStation}
+            onStationChange={setToStation}
+          />
+        </div>
       </div>
 
-      <div className="mt-4 grid items-end gap-4 sm:grid-cols-[auto_auto_1fr]">
+      <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-end">
         <div>
           <label htmlFor="ts-date" className={LABEL}>
             Journey date
           </label>
-          <input
+          <JourneyDatePicker
             id="ts-date"
-            type="date"
-            required
+            value={date}
+            onChange={setDate}
             min={MIN_DATE}
             max={MAX_DATE}
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className={FIELD}
           />
         </div>
 
@@ -153,7 +155,7 @@ export function TrainSearchForm({
         <button
           type="submit"
           aria-disabled={searching || !ready}
-          className="rounded-md bg-rail-900 px-6 py-3 font-ticket text-sm font-semibold uppercase tracking-[0.2em] text-paper-50 transition-colors hover:bg-rail-700 focus:outline-none focus:ring-2 focus:ring-rail-500 focus:ring-offset-2 focus:ring-offset-paper-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 sm:justify-self-end"
+          className="rounded-md bg-rail-900 px-6 py-3 font-ticket text-sm font-semibold uppercase tracking-widest text-paper-50 transition-colors hover:bg-rail-700 focus:outline-none focus:ring-2 focus:ring-rail-500 focus:ring-offset-2 focus:ring-offset-paper-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 sm:ml-auto cursor-pointer"
         >
           {searching ? 'Searching…' : 'Search trains'}
         </button>
