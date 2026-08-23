@@ -97,7 +97,7 @@ export default function App() {
     <div className="flex min-h-dvh flex-col bg-paper-100 font-body text-rail-950">
       <Navbar />
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 pb-12 pt-8 sm:px-6 sm:pt-12">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-12 pt-6 sm:px-8 sm:pt-8">
         <Routes>
           <Route path="/train-search" element={<TrainSearchRoute />} />
           <Route path="/seat-finder" element={<SeatFinderRoute />} />

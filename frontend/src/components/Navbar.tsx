@@ -55,7 +55,7 @@ export function Navbar() {
       <div className="h-1 bg-gradient-to-r from-signal-amber via-signal-amber-deep to-signal-amber" />
 
       <header className="relative z-30 bg-rail-950 text-paper-50 shadow-lg shadow-rail-950/20">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:max-w-6xl sm:px-8 sm:py-5">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-8 sm:py-5">
           {/* ── Brand ──────────────────────────────────────────────────── */}
           <NavLink
             to="/train-search"
@@ -168,7 +168,7 @@ export function Navbar() {
         >
           <nav
             aria-label="Mobile navigation"
-            className="mx-auto max-w-5xl space-y-1 px-4 py-3"
+            className="mx-auto max-w-6xl space-y-1 px-4 py-3"
           >
             {NAV.map((n) => (
               <NavLink
