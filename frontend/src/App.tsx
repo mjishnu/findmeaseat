@@ -94,11 +94,10 @@ function TrainSearchRoute() {
 
 export default function App() {
   return (
-    <div className="min-h-dvh bg-paper-100 font-body text-rail-950">
+    <div className="flex min-h-dvh flex-col bg-paper-100 font-body text-rail-950">
       <Navbar />
 
-      {/* pb leaves room for the fixed footer so cards don't hide behind it */}
-      <main className="mx-auto max-w-5xl px-4 pb-24 pt-8 sm:px-6 sm:pt-12">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 pb-12 pt-8 sm:px-6 sm:pt-12">
         <Routes>
           <Route path="/train-search" element={<TrainSearchRoute />} />
           <Route path="/seat-finder" element={<SeatFinderRoute />} />
