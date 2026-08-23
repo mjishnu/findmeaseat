@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+todo.txt
 
 # Node
 node_modules/
