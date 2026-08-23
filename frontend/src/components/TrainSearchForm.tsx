@@ -84,7 +84,7 @@ export function TrainSearchForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="mt-10 rounded-xl border border-rail-200 bg-paper-50 p-5 shadow-sm sm:p-6"
+      className="mt-8 rounded-xl border border-rail-200 bg-paper-50 p-5 shadow-sm sm:p-6"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex-1">
@@ -120,7 +120,7 @@ export function TrainSearchForm({
       </div>
 
       <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-end">
-        <div>
+        <div className="w-full sm:w-56">
           <label htmlFor="ts-date" className={LABEL}>
             Journey date
           </label>
@@ -133,7 +133,7 @@ export function TrainSearchForm({
           />
         </div>
 
-        <div>
+        <div className="w-full sm:w-44">
           <label htmlFor="ts-quota" className={LABEL}>
             Quota
           </label>

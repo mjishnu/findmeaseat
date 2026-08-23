@@ -6,7 +6,7 @@ export function Footer() {
       {/* ── Top amber signal stripe matching the header ───────────── */}
       <div className="h-1 bg-gradient-to-r from-signal-amber via-signal-amber-deep to-signal-amber" />
 
-      <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-3 px-4 py-3 sm:max-w-6xl sm:flex-row sm:px-8 sm:py-3.5">
+      <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-4 py-3 sm:flex-row sm:px-8 sm:py-3.5">
         {/* ── Left / Attribution ────────────────────────────────────── */}
         <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 font-ticket text-xs text-paper-50/70 sm:justify-start">
           <span className="font-medium text-paper-50/90">
