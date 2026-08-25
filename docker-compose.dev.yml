@@ -1,0 +1,42 @@
+# =============================================================
+# Local Development Docker Compose for FindMeASeat
+# Run with: docker compose -f docker-compose.dev.yml up --build
+# =============================================================
+services:
+  redis:
+    image: redis:7-alpine
+    command: >
+      redis-server
+      --save 60 1
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy volatile-lru
+    volumes:
+      - redis_data_dev:/data
+    ports:
+      - "6379:6379"   # Accessible locally for redis-cli or GUI tools
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    command: ["fastapi", "dev", "app/main.py", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - ./backend/app:/app/app    # Live Python code mount for auto-reload
+    ports:
+      - "8000:8000"               # Direct access & Swagger UI at http://localhost:8000/docs
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"                 # Direct access to Web UI at http://localhost:8080
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  redis_data_dev:

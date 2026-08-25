@@ -17,8 +17,6 @@ services:
     build: ./backend
     expose:
       - "8000"
-    ports:
-      - "8000:8000"   # exposed for direct access to /docs; remove if not needed
     depends_on:
       - redis
     environment:
@@ -27,12 +25,19 @@ services:
 
   frontend:
     build: ./frontend
-    ports:
-      - "8080:80"
     depends_on:
       - backend
     restart: unless-stopped
+    networks:
+      default:
+      web_gateway:
+        aliases:
+          - findmeaseat-frontend
+
+networks:
+  default:
+  web_gateway:
+    external: true
 
 volumes:
   redis_data:
-
