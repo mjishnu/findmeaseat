@@ -1,20 +1,68 @@
-# Python
-.venv/
-__pycache__/
-*.pyc
-.pytest_cache/
-todo.txt
+# Byte-compiled / optimized / binary files
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
 
-# Node
+# Python distribution / packaging
+build/
+dist*/
+sdist/
+wheels/
+*.egg*
+*eggs/
+.Python
+*.installed.cfg
+
+# Virtual Environments
+[._]?[vV]env*/
+[._]?[eE]nv*/
+
+# Caches, Testing & Code Coverage
+.*cache*/
+.hypothesis/
+*coverage*
+*.cover*
+htmlcov/
+nosetests.xml
+
+# Node & Frontend
 node_modules/
-dist/
+*.local
 
-# OS / editor
-.DS_Store
-Thumbs.db
+# Logs & Debug outputs
+logs/
+*.log*
+*-debug.log*
+*-error.log*
 
-# Vendored reference app (carries its own git repo)
+# Environment variables & secrets
+.env*
+*.env*
+!.env.example
+
+# IDEs, Editors & OS Files
+.vscode*/
+.idea*/
+.history*/
+*.sw?
+*~
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+.DS_Store*
+[Tt]humbs.db*
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# AI Assistants & Tool configs
+.amazonq*/
+.claude*/
+.cursor*
+.agents*/
+.gemini*/
+
+# Project specific
 refrence/
-
-# Claude Code local session files
-.claude/
+todo.txt
