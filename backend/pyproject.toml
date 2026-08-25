@@ -2,7 +2,7 @@
 name = "findmeaseat"
 version = "1.0.0"
 description = "Finds the booking combination most likely to confirm by checking every station pair that covers the user's journey."
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "fastapi[standard]>=0.136.3",
     "tzdata>=2025.2",
