@@ -63,6 +63,31 @@ docker compose -f docker-compose.dev.yml up --build
 docker compose up -d --build
 ```
 
+#### Continuous deployment
+[`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml) runs on every push and pull request:
+backend tests (against a Redis service), frontend lint + build, and a `docker compose build`
+on an arm64 runner (the production server is arm64). When all pass on `main`, the deploy job
+SSHes into the server, where [`deploy/deploy.sh`](deploy/deploy.sh) fast-forwards the checkout to
+that commit, runs `docker compose up -d --build`, smoke-tests `/api` through nginx, and prunes old
+images. It refuses to deploy over uncommitted edits on the server. Re-deploy by hand from the
+Actions tab (*Run workflow*) or on the server with `deploy/deploy.sh`.
+
+One-time setup:
+1. On the server, authorize a key that can only run the deploy script:
+   ```bash
+   ssh-keygen -t ed25519 -N '' -C findmeaseat-github-deploy -f ~/.ssh/findmeaseat_deploy
+   echo "restrict,command=\"$PWD/deploy/deploy.sh\" $(cat ~/.ssh/findmeaseat_deploy.pub)" >> ~/.ssh/authorized_keys
+   ```
+2. In GitHub → *Settings → Secrets and variables → Actions*, add:
+   - `DEPLOY_HOST` – server IP or hostname
+   - `DEPLOY_USER` – SSH user that owns the checkout
+   - `DEPLOY_SSH_KEY` – contents of `~/.ssh/findmeaseat_deploy` (the private key)
+   - `DEPLOY_KNOWN_HOSTS` – the server's host keys as `known_hosts` lines, e.g.
+     `for f in /etc/ssh/ssh_host_*_key.pub; do echo "<DEPLOY_HOST> $(cut -d' ' -f1-2 $f)"; done`
+
+Backend tests need a disposable Redis: `cd backend && REDIS_URL=redis://localhost:6379/15 python -m pytest`
+(they flush the database they point at).
+
 ---
 
 ### Option 2: Local Manual Setup
@@ -93,6 +118,7 @@ Access the development UI at [http://localhost:5173](http://localhost:5173) (Vit
 
 ```text
 findmeaseat/
+├── .github/workflows/ci-cd.yml      # CI (tests, lint, image build) + deploy on push to main
 ├── backend/
 │   ├── app/
 │   │   ├── config.py                 # Pydantic environment configuration
@@ -114,6 +140,7 @@ findmeaseat/
 │   │   │   └── train_search.py       # Trains between stations lookup
 │   │   ├── schemas/                  # Pydantic domain & manifest schemas
 │   │   └── services/                 # Application workflow orchestration
+│   ├── tests/                        # pytest suite (needs a disposable Redis)
 │   ├── Dockerfile
 │   └── pyproject.toml
 ├── frontend/
@@ -124,6 +151,7 @@ findmeaseat/
 │   │   └── index.css                 # Tailwind CSS styles & animations
 │   ├── Dockerfile
 │   └── package.json
+├── deploy/deploy.sh                  # Server-side deploy: fast-forward, rebuild, smoke test
 ├── docker-compose.dev.yml            # Local development orchestration with volume mounts
 ├── docker-compose.yml                # Production deployment container definitions
 └── README.md
