@@ -85,6 +85,12 @@ One-time setup:
    - `DEPLOY_KNOWN_HOSTS` – the server's host keys as `known_hosts` lines, e.g.
      `for f in /etc/ssh/ssh_host_*_key.pub; do echo "<DEPLOY_HOST> $(cut -d' ' -f1-2 $f)"; done`
 
+Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)) opens weekly grouped
+minor/patch updates. [`dependabot-automerge.yml`](.github/workflows/dependabot-automerge.yml)
+squash-merges every open Dependabot PR whose CI/CD run passed on its current commit, then runs
+CI/CD on `main` to deploy it. It runs after each CI/CD run, daily, and on demand; major version
+bumps (and Python/Node runtime minor bumps) are left open for review.
+
 Backend tests need a disposable Redis: `cd backend && REDIS_URL=redis://localhost:6379/15 python -m pytest`
 (they flush the database they point at).
 
