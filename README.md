@@ -111,7 +111,7 @@ fastapi dev app/main.py --host 127.0.0.1 --port 8000
 ```
 Interactive API documentation will be available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
-#### Frontend (Node 24+)
+#### Frontend (Node 26+)
 
 ```powershell
 cd frontend
