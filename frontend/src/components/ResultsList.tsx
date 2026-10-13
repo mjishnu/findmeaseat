@@ -9,6 +9,9 @@ interface ResultsListProps {
 
 export function ResultsList({ data }: ResultsListProps) {
   const { user_leg: leg, recommendations } = data
+  // pairs_skipped counts every pair without a candidate; some just have no data yet
+  const noData = data.pairs_no_data ?? 0
+  const unavailable = Math.max(0, data.pairs_skipped - noData)
   return (
     <section className="mt-10" aria-label="Recommendations">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-rail-950 px-4 py-3 text-paper-50">
@@ -22,7 +25,8 @@ export function ResultsList({ data }: ResultsListProps) {
           <StatusBadge availability={leg.availability} tone="dark" />
           <p className="font-ticket text-xs uppercase tracking-widest text-paper-50/60">
             {data.pairs_evaluated} combos checked
-            {data.pairs_skipped > 0 && ` · ${data.pairs_skipped} unavailable`}
+            {unavailable > 0 && ` · ${unavailable} unavailable`}
+            {noData > 0 && ` · ${noData} no data yet`}
           </p>
         </div>
       </div>
@@ -39,7 +43,9 @@ export function ResultsList({ data }: ResultsListProps) {
         <ErrorBanner>
           {data.quota === 'TQ'
             ? 'No bookable options in Tatkal for this date — Tatkal opens ~1 day before travel. Switch to General quota or pick a nearer date.'
-            : 'No bookable combination right now — every covering pair came back REGRET or unparseable. Try another date.'}
+            : noData > 0
+              ? `No bookable combination yet — confirmtkt had no availability data for ${noData} of ${data.pairs_evaluated} combinations. It fills in on demand, so try again in a minute.`
+              : 'No bookable combination right now — every covering pair came back REGRET or unparseable. Try another date.'}
         </ErrorBanner>
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">

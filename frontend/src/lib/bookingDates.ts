@@ -17,6 +17,12 @@ const addDays = (ymd: string, days: number) => {
 export const MIN_DATE = istToday()
 export const MAX_DATE = addDays(MIN_DATE, ARP_DAYS)
 
+// The ARP counts from the train's origin date, so a station `dayOffset` days into
+// the run opens that many days later. Keep MAX_DAY_OFFSET in sync with the backend.
+const MAX_DAY_OFFSET = 3 // the longest train (Vivek Express) ends on day 4
+export const maxDateFor = (dayOffset: number) => addDays(MAX_DATE, dayOffset)
+export const TRAIN_SEARCH_MAX_DATE = maxDateFor(MAX_DAY_OFFSET)
+
 export function getWeekdayIndex(ymd: string): number {
   const [y, m, d] = ymd.split('-').map(Number)
   const date = new Date(y, m - 1, d)
@@ -36,13 +42,8 @@ export function findNextRunningDate(
   maxDate: string = MAX_DATE,
 ): string | null {
   if (!runningDays || runningDays.length !== 7) return null
-  const [y, m, d] = ymd.split('-').map(Number)
-  const current = new Date(y, m - 1, d)
-
-  for (let i = 1; i <= 60; i++) {
-    const next = new Date(current)
-    next.setDate(next.getDate() + i)
-    const nextYmd = next.toISOString().slice(0, 10)
+  for (let i = 1; i <= ARP_DAYS + MAX_DAY_OFFSET; i++) {
+    const nextYmd = addDays(ymd, i)
     if (nextYmd > maxDate) break
     if (nextYmd >= minDate && isDayRunning(nextYmd, runningDays)) {
       return nextYmd

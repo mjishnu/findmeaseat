@@ -14,7 +14,7 @@ import { FIELD, LABEL } from './formStyles'
 import {
   findNextRunningDate,
   isDayRunning,
-  MAX_DATE,
+  maxDateFor,
   MIN_DATE,
   shiftRunningDays,
 } from '../lib/bookingDates'
@@ -133,9 +133,11 @@ export function SearchForm({
   const selectedSourceStop = route?.stations.find((s) => s.code === source)
   const dayOffset = selectedSourceStop?.day_offset ?? 0
   const effectiveRunningDays = shiftRunningDays(route?.running_days, dayOffset)
+  const maxDate = maxDateFor(dayOffset)
 
   const isDateRunning = isDayRunning(date, effectiveRunningDays)
-  const nextRunningDate = !isDateRunning && date ? findNextRunningDate(date, effectiveRunningDays) : null
+  const nextRunningDate =
+    !isDateRunning && date ? findNextRunningDate(date, effectiveRunningDays, MIN_DATE, maxDate) : null
 
   function handleSubmit(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -276,7 +278,7 @@ export function SearchForm({
             value={date}
             onChange={setDate}
             min={MIN_DATE}
-            max={MAX_DATE}
+            max={maxDate}
             runningDays={effectiveRunningDays}
           />
           {!isDateRunning && date && (

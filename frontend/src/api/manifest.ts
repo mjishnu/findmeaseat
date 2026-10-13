@@ -190,7 +190,8 @@ async function fetchWithRetry(
         body = stripErailRoute(body)
       }
       return { fetch_id: f.fetch_id, status: res.status, body }
-    } catch {
+    } catch (err) {
+      if (signal?.aborted) throw err
       if (attempt === retries) break
     }
   }
@@ -224,9 +225,12 @@ export async function executeManifest<T>(
   })
 
   let response = await postRequest(manifestUrl, body, signal)
+  // Rounds can repeat (e.g. a date recheck), so never let the bar move backwards
+  let lastPercent = 0
 
   while (isContinue(response)) {
-    const phaseConfig = response.fetches[0]?.fetch_id.startsWith('verify:')
+    const firstId = response.fetches[0]?.fetch_id ?? ''
+    const phaseConfig = firstId.startsWith('verify:')
       ? {
           phase: 'verifying' as const,
           label: 'Verifying seat availability for best options…',
@@ -235,14 +239,23 @@ export async function executeManifest<T>(
           maxPercent: 98,
           step: 2,
         }
-      : {
-          phase: 'fetching_pairs' as const,
-          label: 'Checking seat availability across route combinations…',
-          unitNoun: 'routes checked',
-          basePercent: 5,
-          maxPercent: 90,
-          step: 1,
-        }
+      : firstId.startsWith('recheck:')
+        ? {
+            phase: 'fetching_pairs' as const,
+            label: 'Re-checking boarding dates for some stations…',
+            unitNoun: 'routes re-checked',
+            basePercent: 85,
+            maxPercent: 90,
+            step: 1,
+          }
+        : {
+            phase: 'fetching_pairs' as const,
+            label: 'Checking seat availability across route combinations…',
+            unitNoun: 'routes checked',
+            basePercent: 5,
+            maxPercent: 85,
+            step: 1,
+          }
 
     const cachedCount = response.cached_count ?? 0
     const totalPairs = response.total_count ?? (cachedCount + response.fetches.length)
@@ -251,9 +264,13 @@ export async function executeManifest<T>(
     const reportProgress = () => {
       const currentCompleted = cachedCount + completedFetches
       const fraction = totalPairs > 0 ? currentCompleted / totalPairs : 1
-      const percent = Math.round(
-        phaseConfig.basePercent + fraction * (phaseConfig.maxPercent - phaseConfig.basePercent),
+      const percent = Math.max(
+        lastPercent,
+        Math.round(
+          phaseConfig.basePercent + fraction * (phaseConfig.maxPercent - phaseConfig.basePercent),
+        ),
       )
+      lastPercent = percent
 
       onProgress?.({
         phase: phaseConfig.phase,

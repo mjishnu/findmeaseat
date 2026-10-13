@@ -54,7 +54,8 @@ def sort_candidates(
 
         m = re.search(r"\d+", c.parsed.raw)
         num = int(m.group()) if m else 0
-        queue_score = -num if c.parsed.status == AvailabilityStatus.WAITLIST else num
+        # more seats left is better; fewer people ahead (RAC/WL) is better
+        queue_score = num if c.parsed.status == AvailabilityStatus.AVAILABLE else -num
         return (
             round(score, 4),
             c.parsed.status,

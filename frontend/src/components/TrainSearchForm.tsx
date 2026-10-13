@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type SubmitEvent } from 'react'
 import { QUOTAS, type BookingQuota, type Station } from '../api'
-import { MAX_DATE, MIN_DATE } from '../lib/bookingDates'
+import { MIN_DATE, TRAIN_SEARCH_MAX_DATE } from '../lib/bookingDates'
 import { FIELD, LABEL } from './formStyles'
 import { JourneyDatePicker } from './JourneyDatePicker'
 import { StationAutocomplete } from './StationAutocomplete'
@@ -129,7 +129,7 @@ export function TrainSearchForm({
             value={date}
             onChange={setDate}
             min={MIN_DATE}
-            max={MAX_DATE}
+            max={TRAIN_SEARCH_MAX_DATE}
           />
         </div>
 

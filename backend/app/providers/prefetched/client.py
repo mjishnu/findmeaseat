@@ -177,5 +177,25 @@ def quota_class_cache(
     return cache.get(class_code) or {}
 
 
+def has_class_availability(
+    train: dict, class_code: str, quota: BookingQuota = BookingQuota.GENERAL
+) -> bool:
+    """Whether `train` holds a real answer for one class in `quota`.
+
+    confirmtkt fills its availability cache lazily: a cold pair comes back with an
+    empty quota cache, or with `availability: null` for the class. That's a
+    placeholder, not a verdict, so it must be refetched rather than served from
+    our cache as "not available". A class absent from a populated cache is a real
+    answer (the class isn't offered on that segment).
+    """
+    cache = train.get(quota_cache_key(quota)) or {}
+    if not cache:
+        return False
+    entry = cache.get(class_code)
+    if entry is None:
+        return True
+    return bool(entry.get("availability") or entry.get("availabilityDisplayName"))
+
+
 def format_date(journey_date: dt.date) -> str:
     return journey_date.strftime("%d-%m-%Y")

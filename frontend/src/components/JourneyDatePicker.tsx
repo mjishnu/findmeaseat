@@ -136,17 +136,10 @@ export function JourneyDatePicker({
   const startingDayOffset = (firstDayOfMonth.getDay() + 6) % 7 // 0 for Mon, ..., 6 for Sun
 
   // Navigation handlers
-  const canGoPrev = () => {
-    const prevMonthDate = new Date(viewYear, viewMonth, 0)
-    const prevMonthYmd = prevMonthDate.toISOString().slice(0, 7)
-    return prevMonthYmd >= min.slice(0, 7)
-  }
-
-  const canGoNext = () => {
-    const nextMonthDate = new Date(viewYear, viewMonth + 1, 1)
-    const nextMonthYmd = nextMonthDate.toISOString().slice(0, 7)
-    return nextMonthYmd <= max.slice(0, 7)
-  }
+  // Local calendar month as YYYY-MM (toISOString would shift local midnight to UTC)
+  const monthYm = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  const canGoPrev = () => monthYm(new Date(viewYear, viewMonth - 1, 1)) >= min.slice(0, 7)
+  const canGoNext = () => monthYm(new Date(viewYear, viewMonth + 1, 1)) <= max.slice(0, 7)
 
   const prevMonth = (e: React.MouseEvent) => {
     e.stopPropagation()

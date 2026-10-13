@@ -7,6 +7,9 @@ from fastapi import HTTPException, Request, Response
 from fastapi.routing import APIRoute
 
 _zstd_decompressor = zstd.ZstdDecompressor()
+# Largest decompressed body accepted; real payloads are well under 1 MB. Without a
+# cap a few KB of zstd can declare gigabytes and get the process OOM-killed.
+MAX_DECOMPRESSED_BYTES = 16 * 1024 * 1024
 
 
 class DecompressRoute(APIRoute):
@@ -21,6 +24,15 @@ class DecompressRoute(APIRoute):
 
                 content_encoding = request.headers.get("Content-Encoding", "").lower()
                 if "zstd" in content_encoding:
+                    try:
+                        # -1 = size not declared; the frontend always declares it
+                        size = zstd.frame_content_size(body)
+                    except zstd.ZstdError:
+                        raise HTTPException(
+                            status_code=400, detail="Invalid zstd payload"
+                        )
+                    if not 0 <= size <= MAX_DECOMPRESSED_BYTES:
+                        raise HTTPException(status_code=413, detail="Payload too large")
                     try:
                         body = _zstd_decompressor.decompress(body)
                     except zstd.ZstdError:

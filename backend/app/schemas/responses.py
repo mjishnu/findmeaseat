@@ -62,7 +62,7 @@ class Recommendation(BaseModel):
 class SwitchAlternative(ClassAvailability):
     quota: BookingQuota
     fare: int = -1
-    fare_delta: int = -1
+    fare_delta: int | None = None  # None when either fare is unknown
 
 
 class RecommendationResponse(BaseModel):
@@ -74,6 +74,8 @@ class RecommendationResponse(BaseModel):
     user_leg: UserLeg
     pairs_evaluated: int
     pairs_skipped: int = 0
+    # of the skipped, pairs with no answer yet (not listed, failed, or not computed)
+    pairs_no_data: int = 0
     recommendations: list[Recommendation]
     alternatives: list[SwitchAlternative] = []
     partial: bool = False

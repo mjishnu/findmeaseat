@@ -2,8 +2,14 @@
 
 Phases:
   1. manifest: validate → enumerate pairs → check caches → build fetch descriptors
-  2. fetch:    parse confirmtkt results → cache segments → rank → build verify descriptors
-  3. verify:   parse IRCTC live results → re-rank with overrides → final recommendations
+  2. fetch:    parse confirmtkt results → cache segments → check boarding dates
+  3. recheck:  only when a boarding date was wrong → refetch those boards on the right date
+  4. verify:   parse IRCTC live results → re-rank with overrides → final recommendations
+
+Boarding dates start from the route's day offsets (erail), which go stale when a
+timetable changes. confirmtkt's own departure times and durations are current, so
+each board's date is checked against the user's station: both reach the same alight
+station at the same instant, which pins down how many days apart they depart.
 """
 
 import datetime as dt
@@ -16,7 +22,7 @@ from app.exceptions import (
     TrainNotFoundError,
 )
 from app.infrastructure.cache import (
-    DeadPairCache,
+    BoardDayCache,
     RouteCache,
     SeatFinderSegmentCache,
     TrainSearchCache,
@@ -26,6 +32,8 @@ from app.providers.prefetched.client import (
     build_availability_descriptor,
     build_confirmtkt_descriptor,
     format_date,
+    has_class_availability,
+    to_int,
 )
 from app.providers.prefetched.parser import (
     extract_json_data,
@@ -34,6 +42,7 @@ from app.providers.prefetched.parser import (
 from app.providers.prefetched.provider import PreFetchedProvider
 from app.schemas import (
     BookingQuota,
+    FetchDescriptor,
     FetchResult,
     ManifestResponse,
     RecommendationResponse,
@@ -41,11 +50,23 @@ from app.schemas import (
 )
 from app.services.recommendations import build_verified_response, rank_candidates
 
-AVAILABILITY_CACHE_KEYS = (
+SEGMENT_CACHE_KEYS = (
     "availabilityCache",
     "availabilityCacheTatkal",
     "availabilityCacheForQuota",
+    # identify the pair and timing the segment belongs to
+    "fromStnCode",
+    "toStnCode",
+    "departureTime",
+    "duration",
 )
+
+ONE_DAY = dt.timedelta(days=1)
+MINUTES_PER_DAY = 24 * 60
+# confirmtkt durations are schedule-exact; allow a little slack for rounding quirks
+TIMING_TOLERANCE_MIN = 60
+
+PairOnDate = tuple[str, str, dt.date]
 
 
 async def create_manifest(
@@ -61,15 +82,15 @@ async def create_manifest(
 ) -> ManifestResponse | RecommendationResponse:
     """Build fetch descriptors for all uncached station pairs, or short-circuit
     to ranking if everything is already cached."""
-    validate_journey_date(date)
     source = user_source.strip().upper()
     destination = user_destination.strip().upper()
 
     cached_route = await RouteCache.get(train_number)
     if not cached_route:
         raise TrainNotFoundError(train_number)
+    validate_journey_date(date, cached_route.get_day_offset(source))
 
-    all_pairs = enumerate_pairs(
+    pairs = enumerate_pairs(
         cached_route,
         source,
         destination,
@@ -77,43 +98,23 @@ async def create_manifest(
         min_coverage_pct,
         require_connect,
     )
-    pairs = []
-    for b, a in all_pairs:
-        pair_date = cached_route.boarding_date_for(b.code, source, date)
-        pair_date_str = format_date(pair_date)
-        if not await DeadPairCache.get(train_number, b.code, a.code, pair_date_str):
-            pairs.append((b, a))
 
-    fetch_group = quota.fetch_group
-    cached_segs: dict[str, dict] = {}
-    fetches = []
-    fetch_id_to_pair = {}
-    for b, a in pairs:
-        fid = f"{b.code}|{a.code}"
-        fetch_id_to_pair[fid] = (b, a)
-        pair_date = cached_route.boarding_date_for(b.code, source, date)
-        pair_date_str = format_date(pair_date)
-
-        hit = await SeatFinderSegmentCache.get_field(
-            b.code, a.code, pair_date_str, fetch_group, train_number
+    board_dates = {}
+    for b, _ in pairs:
+        if b.code in board_dates:
+            continue
+        days = await BoardDayCache.get(train_number, b.code, source)
+        board_dates[b.code] = (
+            date - dt.timedelta(days=days)
+            if days is not None
+            else cached_route.boarding_date_for(b.code, source, date)
         )
-        if hit is None:
-            hit = await TrainSearchCache.get_field(
-                b.code, a.code, pair_date_str, fetch_group, train_number
-            )
-        if hit is not None:
-            cached_segs[fid] = hit
-        else:
-            fetches.append(
-                build_confirmtkt_descriptor(b.code, a.code, pair_date, quota, fid)
-            )
 
     entry = SeatFinderEntry(
         phase="fetch",
         route=cached_route,
         pairs=pairs,
-        fetch_id_to_pair=fetch_id_to_pair,
-        cached_segments=cached_segs,
+        board_dates=board_dates,
         train_number=train_number,
         user_source=source,
         user_destination=destination,
@@ -124,12 +125,8 @@ async def create_manifest(
         min_coverage_pct=min_coverage_pct,
         require_connect=require_connect,
     )
-
-    if not fetches:
-        return await _rank_and_build_verify_manifest(entry, cached_segs)
-
-    mid = ManifestCache.put(entry)
-    return ManifestResponse(manifest_id=mid, fetches=fetches)
+    wanted = [(b.code, a.code, entry.board_dates[b.code]) for b, a in pairs]
+    return await _advance(entry, await _collect(entry, wanted))
 
 
 async def process_manifest(
@@ -140,8 +137,9 @@ async def process_manifest(
     if not isinstance(entry, SeatFinderEntry):
         raise ManifestExpiredError()
 
-    if entry.phase == "fetch":
-        return await _process_fetch_phase(entry, results)
+    if entry.phase in ("fetch", "recheck"):
+        await _ingest(entry, results)
+        return await _advance(entry, [])
     elif entry.phase == "verify":
         return await _process_verify_phase(entry, results)
 
@@ -151,10 +149,247 @@ async def process_manifest(
 # ── Internal helpers ─────────────────────────────────────────────
 
 
+def _is_usable(
+    segment: dict | None,
+    board: str,
+    alight: str,
+    travel_class: TravelClass,
+    quota: BookingQuota,
+) -> bool:
+    """A cached segment only counts as a hit if it is for this exact pair (not a
+    nearby station confirmtkt substituted) and answers this class/quota;
+    confirmtkt's not-yet-computed placeholders are refetched."""
+    return (
+        segment is not None
+        and segment.get("fromStnCode") == board
+        and segment.get("toStnCode") == alight
+        and has_class_availability(segment, travel_class.value, quota)
+    )
+
+
+async def _collect(
+    entry: SeatFinderEntry, wanted: list[PairOnDate]
+) -> list[FetchDescriptor]:
+    """Fill `entry.found` from cache; return fetches for the rest."""
+    fetch_group = entry.quota.fetch_group
+    fetches = []
+    for board, alight, date in wanted:
+        if (board, alight, date) in entry.found:
+            continue
+        date_str = format_date(date)
+
+        hit = await SeatFinderSegmentCache.get_field(
+            board, alight, date_str, fetch_group, entry.train_number
+        )
+        if not _is_usable(hit, board, alight, entry.travel_class, entry.quota):
+            hit = await TrainSearchCache.get_field(
+                board, alight, date_str, fetch_group, entry.train_number
+            )
+        if _is_usable(hit, board, alight, entry.travel_class, entry.quota):
+            entry.found[(board, alight, date)] = hit
+            continue
+
+        # The frontend labels its progress bar from the "recheck:" prefix
+        prefix = "recheck:" if entry.phase == "recheck" else ""
+        fid = f"{prefix}{board}|{alight}|{date_str}"
+        if fid not in entry.pending:
+            entry.pending[fid] = (board, alight, date)
+            fetches.append(
+                build_confirmtkt_descriptor(board, alight, date, entry.quota, fid)
+            )
+    return fetches
+
+
+async def _ingest(entry: SeatFinderEntry, results: list[FetchResult]) -> None:
+    """Parse confirmtkt results into `entry.found` / `entry.not_listed` and cache them."""
+    submitted_ids = [r.fetch_id for r in results]
+    if len(submitted_ids) != len(set(submitted_ids)):
+        raise InvalidManifestError("Duplicate fetch_id")
+    if not set(submitted_ids) <= entry.pending.keys():
+        raise InvalidManifestError("Unknown fetch_id")
+
+    fetch_group = entry.quota.fetch_group
+    for r in results:
+        board, alight, date = entry.pending[r.fetch_id]
+        if r.status != 200 or not r.body:
+            continue
+
+        data = extract_json_data(r.body)
+        train_list = data.get("trainList") if data else None
+        if not isinstance(train_list, list):
+            continue
+
+        # Frontend prefilters to the target train; confirmtkt may still hand it back
+        # for a nearby station instead of the one asked, which isn't this pair.
+        train = next(
+            (
+                t
+                for t in train_list
+                if isinstance(t, dict)
+                and t.get("fromStnCode") == board
+                and t.get("toStnCode") == alight
+            ),
+            None,
+        )
+        if train is None:
+            entry.not_listed.add((board, alight, date))
+            continue
+
+        entry.found[(board, alight, date)] = train
+        await SeatFinderSegmentCache.put_field(
+            board,
+            alight,
+            format_date(date),
+            fetch_group,
+            entry.train_number,
+            {k: train[k] for k in SEGMENT_CACHE_KEYS if k in train},
+        )
+    entry.pending.clear()
+
+
+async def _advance(
+    entry: SeatFinderEntry, fetches: list[FetchDescriptor]
+) -> ManifestResponse | RecommendationResponse:
+    """Send this round's fetches, or move on: date check → recheck → rank/verify."""
+    if fetches:
+        mid = ManifestCache.put(entry)
+        return ManifestResponse(manifest_id=mid, fetches=fetches)
+
+    if entry.phase == "fetch":
+        entry.recheck_dates = _wrong_board_dates(entry)
+        if entry.recheck_dates:
+            entry.phase = "recheck"
+            wanted = [
+                (b.code, a.code, date)
+                for b, a in entry.pairs
+                for date in entry.recheck_dates.get(b.code, ())
+            ]
+            return await _advance(entry, await _collect(entry, wanted))
+    elif entry.phase == "recheck":
+        for board, date in _settle_board_dates(entry).items():
+            await BoardDayCache.put(
+                entry.train_number,
+                board,
+                entry.user_source,
+                (entry.journey_date - date).days,
+            )
+
+    return await _rank_and_build_verify_manifest(entry)
+
+
+def _arrival_minutes(train: dict) -> int | None:
+    """Minutes from midnight of the boarding day to arrival at the alight station."""
+    try:
+        hours, minutes = str(train.get("departureTime")).split(":")
+        departure = int(hours) * 60 + int(minutes)
+    except ValueError:
+        return None
+    duration = to_int(train.get("duration"))
+    return departure + duration if duration > 0 else None
+
+
+def _arrivals(entry: SeatFinderEntry, board: str, date: dt.date) -> dict[str, int]:
+    """Alight station -> arrival minutes, for this board's pairs fetched on `date`."""
+    out = {}
+    for (b, a, d), train in entry.found.items():
+        if b == board and d == date and (m := _arrival_minutes(train)) is not None:
+            out[a] = m
+    return out
+
+
+def _board_date_from_timings(
+    entry: SeatFinderEntry, board: str, date: dt.date, anchor: dict[str, int]
+) -> dt.date | None:
+    """The date the user's train departs `board`, from confirmtkt timings: the board
+    and the user's own station reach a shared alight station at the same instant,
+    so their arrival-minute difference is a whole number of days."""
+    arrivals = _arrivals(entry, board, date)
+    days = set()
+    for alight in arrivals.keys() & anchor.keys():
+        diff = arrivals[alight] - anchor[alight]
+        whole = round(diff / MINUTES_PER_DAY)
+        if abs(diff - whole * MINUTES_PER_DAY) > TIMING_TOLERANCE_MIN:
+            return None
+        days.add(whole)
+    if len(days) != 1:
+        return None
+    return entry.journey_date - dt.timedelta(days=days.pop())
+
+
+def _wrong_board_dates(entry: SeatFinderEntry) -> dict[str, list[dt.date]]:
+    """Boards queried on the wrong date, with the dates to try instead: a single
+    date is pinned by timings; several are candidates to probe."""
+    anchor = _arrivals(entry, entry.user_source, entry.journey_date)
+    if not anchor:
+        # Train not seen from the user's own station on their date: nothing to
+        # measure against (wrong travel date, or the provider failed).
+        return {}
+
+    out = {}
+    for board, queried in entry.board_dates.items():
+        if board == entry.user_source:
+            continue
+        actual = _board_date_from_timings(entry, board, queried, anchor)
+        if actual is not None:
+            if actual != queried:
+                out[board] = [actual]
+        elif not _arrivals(entry, board, queried) and any(
+            b == board and d == queried for b, _, d in entry.not_listed
+        ):
+            # Cleanly not listed that day: a non-daily train whose date is off.
+            # Stale route offsets are off by one; try around the route's date
+            # (which also covers a remembered offset that has since gone stale).
+            # Failed fetches are left alone; a retry can't fix those.
+            route_date = entry.route.boarding_date_for(
+                board, entry.user_source, entry.journey_date
+            )
+            out[board] = sorted(
+                {route_date - ONE_DAY, route_date, route_date + ONE_DAY} - {queried}
+            )
+    return out
+
+
+def _settle_board_dates(entry: SeatFinderEntry) -> dict[str, dt.date]:
+    """After the recheck round, adopt the date each rechecked board really runs on.
+    Returns the boards whose date is proven by timings (safe to remember)."""
+    anchor = _arrivals(entry, entry.user_source, entry.journey_date)
+    proven = {}
+    for board, dates in entry.recheck_dates.items():
+        if len(dates) == 1:
+            # Pinned by timings; even if the refetch failed, the old date's data
+            # belongs to a different run and must not be used.
+            entry.board_dates[board] = proven[board] = dates[0]
+            continue
+        timed = {
+            d: _board_date_from_timings(entry, board, d, anchor)
+            for d in dates
+            if _arrivals(entry, board, d)
+        }
+        confirmed = [d for d, actual in timed.items() if actual == d]
+        if confirmed:
+            entry.board_dates[board] = proven[board] = confirmed[0]
+        elif len(timed) == 1 and None in timed.values():
+            # Listed on just one candidate and timings can't say otherwise.
+            # If timings point elsewhere, that listing is another day's run: skip.
+            entry.board_dates[board] = next(iter(timed))
+    return proven
+
+
+def _segments(entry: SeatFinderEntry) -> dict[str, dict]:
+    """'B|A' -> train dict on each board's settled date, for ranking."""
+    out = {}
+    for b, a in entry.pairs:
+        train = entry.found.get((b.code, a.code, entry.board_dates[b.code]))
+        if train is not None:
+            out[f"{b.code}|{a.code}"] = train
+    return out
+
+
 async def _rank_and_build_verify_manifest(
-    entry: SeatFinderEntry, segments: dict[str, dict]
+    entry: SeatFinderEntry,
 ) -> ManifestResponse | RecommendationResponse:
     """Rank candidates from cached/fetched data, then build verify descriptors."""
+    segments = _segments(entry)
     provider = PreFetchedProvider(entry, segments)
     ranked_data = await rank_candidates(
         provider,
@@ -168,12 +403,20 @@ async def _rank_and_build_verify_manifest(
         entry.min_coverage_pct,
         entry.require_connect,
     )
+    # Pairs with no answer for this class (not listed, failed, or confirmtkt hasn't
+    # computed it yet) are "no data", not "unavailable"
+    ranked_data["context"]["pairs_no_data"] = sum(
+        1
+        for b, a in entry.pairs
+        if not has_class_availability(
+            segments.get(f"{b.code}|{a.code}", {}),
+            entry.travel_class.value,
+            entry.quota,
+        )
+    )
     verify_fetches = []
     for i, cand in enumerate(ranked_data["candidates"]):
         board_code = cand["board"]["code"]
-        cand_date = entry.route.boarding_date_for(
-            board_code, entry.user_source, entry.journey_date
-        )
         verify_fetches.append(
             build_availability_descriptor(
                 train_number=entry.train_number,
@@ -181,7 +424,7 @@ async def _rank_and_build_verify_manifest(
                 quota=entry.quota,
                 source=board_code,
                 destination=cand["alight"]["code"],
-                date=cand_date,
+                date=entry.board_dates[board_code],
                 fetch_id=f"verify:{i}",
             )
         )
@@ -196,71 +439,6 @@ async def _rank_and_build_verify_manifest(
 
     mid = ManifestCache.put(entry)
     return ManifestResponse(manifest_id=mid, fetches=verify_fetches)
-
-
-async def _process_fetch_phase(
-    entry: SeatFinderEntry, results: list[FetchResult]
-) -> ManifestResponse | RecommendationResponse:
-    """Parse confirmtkt results, cache segments, mark dead pairs, then rank."""
-    if not entry.fetch_id_to_pair:
-        raise InvalidManifestError("Missing pairs in entry")
-
-    submitted_ids = [r.fetch_id for r in results]
-    submitted_set = set(submitted_ids)
-    expected_ids = set(entry.fetch_id_to_pair.keys()) - set(
-        entry.cached_segments.keys()
-    )
-
-    if len(submitted_ids) != len(submitted_set):
-        raise InvalidManifestError("Duplicate fetch_id")
-    if not submitted_set <= expected_ids:
-        raise InvalidManifestError("Unknown fetch_id")
-
-    fetch_group = entry.quota.fetch_group
-
-    for fetch_id in expected_ids:
-        if fetch_id not in submitted_set:
-            board, alight = entry.fetch_id_to_pair[fetch_id]
-            pair_date = entry.route.boarding_date_for(
-                board.code, entry.user_source, entry.journey_date
-            )
-            await DeadPairCache.put(
-                entry.train_number, board.code, alight.code, format_date(pair_date)
-            )
-
-    parsed_segments: dict[str, dict] = {}
-
-    for r in results:
-        if r.status != 200 or not r.body:
-            continue
-
-        data = extract_json_data(r.body)
-        if not data:
-            continue
-
-        # Frontend prefilters to the target train (1 element in trainList)
-        train_list = data.get("trainList", [])
-        if train_list and isinstance(train_list[0], dict):
-            segment_data = train_list[0]
-            parsed_segments[r.fetch_id] = segment_data
-            board_stop, alight_stop = entry.fetch_id_to_pair[r.fetch_id]
-            pair_date = entry.route.boarding_date_for(
-                board_stop.code, entry.user_source, entry.journey_date
-            )
-            stripped_data = {
-                k: segment_data[k] for k in AVAILABILITY_CACHE_KEYS if k in segment_data
-            }
-            await SeatFinderSegmentCache.put_field(
-                board_stop.code,
-                alight_stop.code,
-                format_date(pair_date),
-                fetch_group,
-                entry.train_number,
-                stripped_data,
-            )
-
-    parsed_segments.update(entry.cached_segments)
-    return await _rank_and_build_verify_manifest(entry, parsed_segments)
 
 
 async def _process_verify_phase(
@@ -295,10 +473,7 @@ async def _process_verify_phase(
 
         cached_parsed = cand.get("parsed", {})
         if override["availability"].raw != cached_parsed.get("raw"):
-            cand_date = entry.route.boarding_date_for(
-                board, entry.user_source, entry.journey_date
-            )
-            cand_date_str = format_date(cand_date)
+            cand_date_str = format_date(entry.board_dates[board])
             await SeatFinderSegmentCache.delete(
                 board, alight, cand_date_str, fetch_group
             )

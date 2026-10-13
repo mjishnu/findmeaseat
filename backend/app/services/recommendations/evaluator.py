@@ -169,7 +169,11 @@ async def build_better_alternatives(
             and best_key <= searched_best_key
         ):
             continue  # only better than the searched class's best are kept others skipped
-        fare_delta = best.fare - searched_best_fare
+        fare_delta = (
+            best.fare - searched_best_fare
+            if best.fare > 0 and searched_best_fare > 0
+            else None
+        )
         alternatives.append(
             SwitchAlternative(
                 travel_class=tc,
@@ -206,17 +210,18 @@ def build_recommendation(
         notes.append(RecommendationNoteCode.EXTRA_FARE)
     if cand.probability < 0:
         notes.append(RecommendationNoteCode.MISSING_PREDICTION)
-    if cand.board.code != source:
-        notes.append(RecommendationNoteCode.BOARDING_CHANGE)
-    if cand.alight.code != destination:
-        notes.append(RecommendationNoteCode.ALIGHT_CHANGE)
-    if cand.coverage_pct < 1.0:
-        notes.append(RecommendationNoteCode.PARTIAL_COVERAGE)
-
     # For full-coverage (covering) pairs, the user rides their full journey.
     # For partial pairs, they ride the overlap: max(board, source) → min(alight, dest).
     board_at = cand.board_at if cand.board_at else source
     alight_at = cand.alight_at if cand.alight_at else destination
+
+    # Notes compare where the user rides against what the ticket says
+    if board_at != cand.board.code:
+        notes.append(RecommendationNoteCode.BOARDING_CHANGE)
+    if alight_at != cand.alight.code:
+        notes.append(RecommendationNoteCode.ALIGHT_CHANGE)
+    if cand.coverage_pct < 1.0:
+        notes.append(RecommendationNoteCode.PARTIAL_COVERAGE)
 
     return Recommendation(
         rank=rank,

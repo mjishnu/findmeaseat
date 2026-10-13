@@ -2,7 +2,6 @@
 
 import datetime as dt
 
-from app.domain.dates import validate_journey_date
 from app.domain.pairs import enumerate_pairs
 from app.domain.ranking import (
     compute_extra_fare,
@@ -12,6 +11,7 @@ from app.domain.ranking import (
 from app.exceptions import TrainNotFoundError
 from app.providers.base import RailDataProvider
 from app.schemas import (
+    AvailabilityStatus,
     BookingQuota,
     Candidate,
     ParsedAvailability,
@@ -45,7 +45,6 @@ async def rank_candidates(
 ) -> dict:
     source = user_source.strip().upper()
     destination = user_destination.strip().upper()
-    validate_journey_date(journey_date)
 
     route = await provider.get_route()
     if route is None:
@@ -174,10 +173,16 @@ def build_verified_response(
         if fetch_id in live_overrides:
             override = live_overrides[fetch_id]
             parsed = override.get("availability", parsed)
+            if parsed.status in (
+                AvailabilityStatus.NOT_BOOKABLE,
+                AvailabilityStatus.UNKNOWN,
+            ):
+                continue  # live check says REGRET / TRAIN DEPARTED / unparseable
             probability = confirmation_probability(
                 parsed, override.get("prediction_pct", -1)
             )
-            fare = override.get("fare", fare)
+            if override.get("fare") is not None:
+                fare = override["fare"]
 
         extra_fare = compute_extra_fare(fare, user_leg_fare)
 
@@ -217,6 +222,7 @@ def build_verified_response(
         user_leg=user_leg,
         pairs_evaluated=context["pairs_evaluated"],
         pairs_skipped=context["pairs_skipped"],
+        pairs_no_data=context.get("pairs_no_data", 0),
         recommendations=recommendations,
         alternatives=alternatives,
         partial=context.get("partial", False),

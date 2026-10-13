@@ -72,19 +72,6 @@ class StringRedisCache[T](BaseRedisCache[T]):
         await get_redis().set(self._key(*parts), self.serializer(value), ex=self.ttl)
 
 
-# ── Boolean flag cache ───────────────────────────────────────────
-
-
-class FlagRedisCache(BaseRedisCache[str]):
-    """Presence-only cache: exists → True, missing → False."""
-
-    async def get(self, *parts: Any) -> bool:  # type: ignore[override]
-        return await self.exists(*parts)
-
-    async def put(self, *parts: Any) -> None:
-        await get_redis().set(self._key(*parts), "1", ex=self.ttl)
-
-
 # ── Hash redis cache ─────────────────────────────────────────────
 
 

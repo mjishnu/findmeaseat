@@ -36,7 +36,7 @@ export async function request<T>(url: string, signal?: AbortSignal): Promise<T> 
 
 export async function postRequest<T>(url: string, body: unknown, signal?: AbortSignal): Promise<T> {
   const packed = encode(body)
-  const compressed = compress(packed)
+  const compressed = compress(packed, { level: 3 }) // default level 0 stores raw blocks
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/x-msgpack',

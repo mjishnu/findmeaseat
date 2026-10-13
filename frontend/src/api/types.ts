@@ -69,7 +69,7 @@ export interface UserLeg {
 
 export interface SwitchAlternative extends ClassAvailability {
   quota: BookingQuota
-  fare_delta: number
+  fare_delta: number | null // null when either fare is unknown
 }
 
 export interface RecommendationResponse extends TrainIdentity {
@@ -79,6 +79,7 @@ export interface RecommendationResponse extends TrainIdentity {
   user_leg: UserLeg
   pairs_evaluated: number
   pairs_skipped: number
+  pairs_no_data?: number
   recommendations: Recommendation[]
   alternatives: SwitchAlternative[]
   partial: boolean

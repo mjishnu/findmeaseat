@@ -26,7 +26,7 @@ class RouteManifestEntry(ManifestEntry):
 # --- Seat finder ---
 @dataclass
 class SeatFinderEntry(ManifestEntry):
-    phase: str = "fetch"  # "fetch" → "verify"
+    phase: str = "fetch"  # "fetch" → ("recheck") → "verify"
     train_number: str = ""
     user_source: str = ""
     user_destination: str = ""
@@ -43,11 +43,17 @@ class SeatFinderEntry(ManifestEntry):
     # Set after route phase
     route: TrainRoute | None = None
     pairs: list[tuple[StationStop, StationStop]] = field(default_factory=list)
-    fetch_id_to_pair: dict[str, tuple[StationStop, StationStop]] = field(
-        default_factory=dict
-    )
-    # Segment-cached confirmtkt data for pairs that didn't need browser fetching
-    cached_segments: dict[str, dict] = field(default_factory=dict)
+    # Departure date each boarding station's pairs are queried on; starts from the
+    # route's day offsets and is corrected from confirmtkt's own timings
+    board_dates: dict[str, dt.date] = field(default_factory=dict)
+    # Every confirmtkt train dict we hold (cached or fetched), by (board, alight, date)
+    found: dict[tuple[str, str, dt.date], dict] = field(default_factory=dict)
+    # (board, alight, date) that confirmtkt answered without listing this train
+    not_listed: set[tuple[str, str, dt.date]] = field(default_factory=set)
+    # Fetches of the round in flight: fetch_id -> (board, alight, date)
+    pending: dict[str, tuple[str, str, dt.date]] = field(default_factory=dict)
+    # Boards being re-checked, with the candidate dates tried for each
+    recheck_dates: dict[str, list[dt.date]] = field(default_factory=dict)
     # Set after fetch phase — carried into verify phase
     verify_candidates: list[dict] = field(default_factory=list)
     verify_alternatives: list[dict] = field(default_factory=list)
