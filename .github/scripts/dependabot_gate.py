@@ -19,6 +19,12 @@ CHANGE = re.compile(
     r"(?:\bbump|Bumps|Updates) [\[`]?([^\s`\]]+)[\]`]?(?:\([^)\s]*\))?"
     r" from v?(\d+)\.?(\d*)\S* to v?(\d+)\.?(\d*)"
 )
+# The commit's "updated-dependencies:" metadata names every dependency it touches
+# (quoted when the name has special characters, e.g. "@base-ui/react")
+DECLARED = re.compile(r'^- dependency-name: "?([^"\s]+)"?', re.MULTILINE)
+# Present for version updates (not security updates)
+UPDATE_TYPE = re.compile(r"^\s+update-type: (\S+)", re.MULTILINE)
+SAFE_UPDATE_TYPES = {"version-update:semver-minor", "version-update:semver-patch"}
 
 
 def needs_review(commit: dict) -> str | None:
@@ -28,9 +34,19 @@ def needs_review(commit: dict) -> str | None:
     if not commit["commit"]["verification"]["verified"]:
         return "head commit signature isn't verified"
 
-    changes = CHANGE.findall(commit["commit"]["message"])
-    if not changes:
-        return "can't tell which versions change"
+    message = commit["commit"]["message"]
+    declared = set(DECLARED.findall(message))
+    if not declared:
+        return "no updated-dependencies metadata"
+    for update_type in UPDATE_TYPE.findall(message):
+        if update_type not in SAFE_UPDATE_TYPES:
+            return f"update type {update_type}"
+
+    # Every declared dependency must have a version change we can classify
+    changes = CHANGE.findall(message)
+    unclassified = declared - {name for name, *_ in changes}
+    if unclassified:
+        return f"can't tell how {', '.join(sorted(unclassified))} changes"
     for name, from_major, from_minor, to_major, to_minor in changes:
         if from_major != to_major:
             return f"{name} major update {from_major} -> {to_major}"
