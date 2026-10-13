@@ -1,6 +1,9 @@
 # Weekly version updates; minor/patch bumps arrive as one grouped PR per ecosystem.
+# The 7-day cooldown skips releases younger than a week, the window in which
+# hijacked package versions are usually caught and pulled (security updates
+# are not delayed).
 # PRs that pass CI are merged and deployed by .github/workflows/dependabot-automerge.yml
-# (major version bumps are left open for review).
+# (majors, runtime bumps and anything it can't classify are left open for review).
 version: 2
 
 updates:
@@ -8,6 +11,8 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: build
       include: scope
@@ -19,6 +24,8 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: build
       include: scope
@@ -30,6 +37,8 @@ updates:
     directory: /backend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: build
       include: scope
@@ -38,6 +47,8 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: build
       include: scope
@@ -46,6 +57,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: ci
       include: scope

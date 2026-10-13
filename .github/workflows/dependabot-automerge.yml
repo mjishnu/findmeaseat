@@ -3,9 +3,10 @@ name: Dependabot auto-merge
 # Sweeps open Dependabot PRs and squash-merges each one whose latest CI/CD run on
 # its current head commit succeeded, then starts CI/CD on main to re-test and
 # deploy. The explicit dispatch is needed because merges made with GITHUB_TOKEN
-# don't trigger push workflows (workflow_dispatch does). Major version bumps (and
-# Python/Node runtime minor bumps) are left open for review. Never checks out or
-# runs PR code.
+# don't trigger push workflows (workflow_dispatch does). Only verified Dependabot
+# commits with minor/patch changes are merged; .github/scripts/dependabot_gate.py
+# leaves everything else (majors, runtime bumps, range edits, unknown formats)
+# open for review. Never checks out or runs PR code.
 
 on:
   workflow_run:
@@ -32,6 +33,10 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
     steps:
+      - uses: actions/checkout@v7 # the default branch, for the gate script only
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
       - name: Merge Dependabot PRs that passed CI
         run: |
           merged=0
@@ -44,21 +49,11 @@ jobs:
               continue
             fi
 
-            title=$(gh pr view "$pr" --json title --jq .title)
-            # "bump X from 1.2.3 to 2.0.0": a major change (or a 0.x minor change) needs
-            # review; so does any minor change of the Python/Node runtime images, since
-            # CI's tests run on a pinned runtime version
-            re='bump ([^ ]+) from v?([0-9]+)\.?([0-9]*)[^ ]* to v?([0-9]+)\.?([0-9]*)'
-            if [[ "$title" =~ $re ]]; then
-              name=${BASH_REMATCH[1]}
-              from_major=${BASH_REMATCH[2]} from_minor=${BASH_REMATCH[3]}
-              to_major=${BASH_REMATCH[4]} to_minor=${BASH_REMATCH[5]}
-              if [[ $from_major != "$to_major" ]] ||
-                 [[ ( $from_major == 0 || $name == python || $name == node ) && $from_minor != "$to_minor" ]]; then
-                echo "::notice::#$pr changes $name $from_major.$from_minor -> $to_major.$to_minor; leaving it for review"
-                continue
-              fi
+            if ! reason=$(gh api "repos/$GH_REPO/commits/$sha" | python3 .github/scripts/dependabot_gate.py); then
+              echo "::notice::#$pr left for review: $reason"
+              continue
             fi
+            title=$(gh pr view "$pr" --json title --jq .title)
 
             # --match-head-commit: only merge the exact commit CI tested
             if gh pr merge "$pr" --squash --delete-branch --match-head-commit "$sha" \
