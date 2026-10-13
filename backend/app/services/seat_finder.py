@@ -4,7 +4,8 @@ Phases:
   1. manifest: validate → enumerate pairs → check caches → build fetch descriptors
   2. fetch:    parse confirmtkt results → cache segments → check boarding dates
   3. recheck:  only when a boarding date was wrong → refetch those boards on the right date
-  4. verify:   parse IRCTC live results → re-rank with overrides → final recommendations
+  4. fill:     live-check pairs whose availability confirmtkt's search left empty
+  5. verify:   parse IRCTC live results → re-rank with overrides → final recommendations
 
 Boarding dates start from the route's day offsets (erail), which go stale when a
 timetable changes. confirmtkt's own departure times and durations are current, so
@@ -33,6 +34,7 @@ from app.providers.prefetched.client import (
     build_confirmtkt_descriptor,
     format_date,
     has_class_availability,
+    quota_cache_key,
     to_int,
 )
 from app.providers.prefetched.parser import (
@@ -65,6 +67,8 @@ ONE_DAY = dt.timedelta(days=1)
 MINUTES_PER_DAY = 24 * 60
 # confirmtkt durations are schedule-exact; allow a little slack for rounding quirks
 TIMING_TOLERANCE_MIN = 60
+# Most pairs to live-check per search when confirmtkt's search left them empty
+MAX_LIVE_FILLS = 40
 
 PairOnDate = tuple[str, str, dt.date]
 
@@ -140,6 +144,9 @@ async def process_manifest(
     if entry.phase in ("fetch", "recheck"):
         await _ingest(entry, results)
         return await _advance(entry, [])
+    elif entry.phase == "fill":
+        await _ingest_live(entry, results)
+        return await _advance(entry, [])
     elif entry.phase == "verify":
         return await _process_verify_phase(entry, results)
 
@@ -200,15 +207,31 @@ async def _collect(
     return fetches
 
 
-async def _ingest(entry: SeatFinderEntry, results: list[FetchResult]) -> None:
-    """Parse confirmtkt results into `entry.found` / `entry.not_listed` and cache them."""
+def _check_submitted(entry: SeatFinderEntry, results: list[FetchResult]) -> None:
     submitted_ids = [r.fetch_id for r in results]
     if len(submitted_ids) != len(set(submitted_ids)):
         raise InvalidManifestError("Duplicate fetch_id")
     if not set(submitted_ids) <= entry.pending.keys():
         raise InvalidManifestError("Unknown fetch_id")
 
-    fetch_group = entry.quota.fetch_group
+
+async def _cache_segment(
+    entry: SeatFinderEntry, board: str, alight: str, date: dt.date, train: dict
+) -> None:
+    await SeatFinderSegmentCache.put_field(
+        board,
+        alight,
+        format_date(date),
+        entry.quota.fetch_group,
+        entry.train_number,
+        {k: train[k] for k in SEGMENT_CACHE_KEYS if k in train},
+    )
+
+
+async def _ingest(entry: SeatFinderEntry, results: list[FetchResult]) -> None:
+    """Parse confirmtkt results into `entry.found` / `entry.not_listed` and cache them."""
+    _check_submitted(entry, results)
+
     for r in results:
         board, alight, date = entry.pending[r.fetch_id]
         if r.status != 200 or not r.body:
@@ -236,21 +259,93 @@ async def _ingest(entry: SeatFinderEntry, results: list[FetchResult]) -> None:
             continue
 
         entry.found[(board, alight, date)] = train
-        await SeatFinderSegmentCache.put_field(
-            board,
-            alight,
-            format_date(date),
-            fetch_group,
-            entry.train_number,
-            {k: train[k] for k in SEGMENT_CACHE_KEYS if k in train},
+        await _cache_segment(entry, board, alight, date, train)
+    entry.pending.clear()
+
+
+def _live_fill_fetches(entry: SeatFinderEntry) -> list[FetchDescriptor]:
+    """Live checks for listed pairs whose searched class confirmtkt's search left
+    empty. confirmtkt only computes those once someone checks the pair live, so
+    refetching the search never fills them; a live check does, for this search and
+    (once cached) the next. Nearest pairs first, at most MAX_LIVE_FILLS."""
+    empty = []
+    for b, a in entry.pairs:
+        date = entry.board_dates[b.code]
+        train = entry.found.get((b.code, a.code, date))
+        if train is not None and not has_class_availability(
+            train, entry.travel_class.value, entry.quota
+        ):
+            empty.append((a.distance_km - b.distance_km, b.code, a.code, date))
+
+    fetches = []
+    for _, board, alight, date in sorted(empty)[:MAX_LIVE_FILLS]:
+        fid = f"fill:{board}|{alight}|{format_date(date)}"
+        entry.pending[fid] = (board, alight, date)
+        fetches.append(
+            build_availability_descriptor(
+                train_number=entry.train_number,
+                travel_class=entry.travel_class,
+                quota=entry.quota,
+                source=board,
+                destination=alight,
+                date=date,
+                fetch_id=fid,
+            )
         )
+    return fetches
+
+
+def _with_live(entry: SeatFinderEntry, train: dict, live: dict) -> dict:
+    """Copy of a confirmtkt train dict with the searched class/quota set to a live answer."""
+    key = quota_cache_key(entry.quota)
+    quota_cache = dict(train.get(key) or {})
+    previous = quota_cache.get(entry.travel_class.value) or {}
+    quota_cache[entry.travel_class.value] = {
+        # the parser's labels ("AVL 1", "WL 10", "RAC 5", "REGRET...") parse back
+        # to the same status
+        "availability": live["availability"].raw,
+        "availabilityDisplayName": "",
+        "fare": live["fare"] if live.get("fare") is not None else previous.get("fare"),
+        "predictionPercentage": live.get("prediction_pct", -1),
+    }
+    return {**train, key: quota_cache}
+
+
+async def _apply_live(
+    entry: SeatFinderEntry, board: str, alight: str, date: dt.date, live: dict
+) -> None:
+    """Record a live answer in this search, our pair cache, and the trains-between
+    cache (that train only, keeping its expiry), so the next search reuses it."""
+    if (board, alight, date) in entry.found:
+        train = _with_live(entry, entry.found[(board, alight, date)], live)
+        entry.found[(board, alight, date)] = train
+        await _cache_segment(entry, board, alight, date, train)
+
+    parts = (board, alight, format_date(date), entry.quota.fetch_group)
+    listed = await TrainSearchCache.get_field(*parts, entry.train_number)
+    if listed is not None:
+        await TrainSearchCache.update_field(
+            *parts, entry.train_number, _with_live(entry, listed, live)
+        )
+
+
+async def _ingest_live(entry: SeatFinderEntry, results: list[FetchResult]) -> None:
+    """Record the fill round's live answers."""
+    _check_submitted(entry, results)
+    for r in results:
+        board, alight, date = entry.pending[r.fetch_id]
+        live = parse_verify_result(r.body) if r.status == 200 and r.body else None
+        if live is None:
+            continue
+        await _apply_live(entry, board, alight, date, live)
+        entry.live_checked.add(f"{board}|{alight}")
     entry.pending.clear()
 
 
 async def _advance(
     entry: SeatFinderEntry, fetches: list[FetchDescriptor]
 ) -> ManifestResponse | RecommendationResponse:
-    """Send this round's fetches, or move on: date check → recheck → rank/verify."""
+    """Send this round's fetches, or move on: date check → recheck → fill → verify."""
     if fetches:
         mid = ManifestCache.put(entry)
         return ManifestResponse(manifest_id=mid, fetches=fetches)
@@ -273,6 +368,10 @@ async def _advance(
                 entry.user_source,
                 (entry.journey_date - date).days,
             )
+
+    if entry.phase in ("fetch", "recheck"):
+        entry.phase = "fill"
+        return await _advance(entry, _live_fill_fetches(entry))
 
     return await _rank_and_build_verify_manifest(entry)
 
@@ -417,6 +516,8 @@ async def _rank_and_build_verify_manifest(
     verify_fetches = []
     for i, cand in enumerate(ranked_data["candidates"]):
         board_code = cand["board"]["code"]
+        if f"{board_code}|{cand['alight']['code']}" in entry.live_checked:
+            continue  # checked live moments ago in the fill round
         verify_fetches.append(
             build_availability_descriptor(
                 train_number=entry.train_number,
@@ -448,7 +549,6 @@ async def _process_verify_phase(
     if not entry.verify_candidates or not entry.verify_context:
         raise InvalidManifestError("Missing verify candidates or context in entry")
 
-    fetch_group = entry.quota.fetch_group
     live_overrides = {}
 
     for r in results:
@@ -470,14 +570,9 @@ async def _process_verify_phase(
         fetch_id = f"{board}|{alight}"
 
         live_overrides[fetch_id] = override
-
-        cached_parsed = cand.get("parsed", {})
-        if override["availability"].raw != cached_parsed.get("raw"):
-            cand_date_str = format_date(entry.board_dates[board])
-            await SeatFinderSegmentCache.delete(
-                board, alight, cand_date_str, fetch_group
-            )
-            await TrainSearchCache.delete(board, alight, cand_date_str, fetch_group)
+        # Keep the fresher live answer rather than deleting the cache: confirmtkt's
+        # search API lags behind it, so a refetch would only bring back stale data
+        await _apply_live(entry, board, alight, entry.board_dates[board], override)
 
     ranked_data = {
         "candidates": entry.verify_candidates,

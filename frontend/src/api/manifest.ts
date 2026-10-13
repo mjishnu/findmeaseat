@@ -248,6 +248,15 @@ export async function executeManifest<T>(
             maxPercent: 90,
             step: 1,
           }
+        : firstId.startsWith('fill:')
+          ? {
+              phase: 'fetching_pairs' as const,
+              label: 'Getting live availability where cached data was missing…',
+              unitNoun: 'routes checked live',
+              basePercent: 85,
+              maxPercent: 90,
+              step: 1,
+            }
         : {
             phase: 'fetching_pairs' as const,
             label: 'Checking seat availability across route combinations…',

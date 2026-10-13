@@ -26,7 +26,7 @@ class RouteManifestEntry(ManifestEntry):
 # --- Seat finder ---
 @dataclass
 class SeatFinderEntry(ManifestEntry):
-    phase: str = "fetch"  # "fetch" → ("recheck") → "verify"
+    phase: str = "fetch"  # "fetch" → ("recheck") → ("fill") → "verify"
     train_number: str = ""
     user_source: str = ""
     user_destination: str = ""
@@ -54,6 +54,8 @@ class SeatFinderEntry(ManifestEntry):
     pending: dict[str, tuple[str, str, dt.date]] = field(default_factory=dict)
     # Boards being re-checked, with the candidate dates tried for each
     recheck_dates: dict[str, list[dt.date]] = field(default_factory=dict)
+    # "B|A" pairs already checked live in this search (no need to verify again)
+    live_checked: set[str] = field(default_factory=set)
     # Set after fetch phase — carried into verify phase
     verify_candidates: list[dict] = field(default_factory=list)
     verify_alternatives: list[dict] = field(default_factory=list)

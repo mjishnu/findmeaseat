@@ -94,6 +94,8 @@ class FakeConfirmtkt:
 
     dep/arr: absolute minutes from midnight of the origin date.
     runs: origin dates the train runs on (None = daily).
+    placeholders: pairs whose search result has availability None until someone
+    checks them live (what confirmtkt really does); live_fail: live check errors.
     """
 
     def __init__(
@@ -106,11 +108,18 @@ class FakeConfirmtkt:
         substitute=None,
         fail=(),
         blackout=(),
+        placeholders=(),
+        live_fail=(),
+        live_status=None,
     ):
         self.train, self.dep, self.arr, self.runs = train, dep, arr, runs
         self.unsold, self.fail, self.blackout = set(unsold), set(fail), set(blackout)
+        self.placeholders, self.live_fail = set(placeholders), set(live_fail)
+        self.live_status = live_status  # what live checks say, when it differs from search
         self.substitute = substitute or {}
-        self.calls: list[tuple[str, str, dt.date]] = []
+        self.calls: list[tuple[str, str, dt.date]] = []  # search API
+        self.live_calls: list[tuple[str, str, dt.date]] = []  # fetchAvailability
+        self.filled: set[tuple[str, str, dt.date]] = set()
 
     def origin_for(self, board: str, date: dt.date) -> dt.date | None:
         origin = date - dt.timedelta(days=self.dep[board] // 1440)
@@ -125,6 +134,8 @@ class FakeConfirmtkt:
         q = {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
         board, alight = q["sourceStationCode"], q["destinationStationCode"]
         date = dt.datetime.strptime(q["dateOfJourney"], "%d-%m-%Y").date()
+        if "fetchAvailability" in url:
+            return self.live(board, alight, date, fetch_id)
         self.calls.append((board, alight, date))
         if (board, alight) in self.fail:
             return FetchResult(fetch_id=fetch_id, status=429, body="")
@@ -137,12 +148,13 @@ class FakeConfirmtkt:
             and (board, date) not in self.blackout
         ):
             dep = self.dep[board]
+            placeholder = (board, alight) in self.placeholders and (board, alight, date) not in self.filled
             listed.append(
                 train_dict(
                     self.train,
                     self.substitute.get(board, board),
                     alight,
-                    self.availability_for(origin),
+                    None if placeholder else self.availability_for(origin),
                     departure=f"{dep % 1440 // 60:02d}:{dep % 60:02d}",
                     duration=self.arr[alight] - dep,
                 )
@@ -150,6 +162,19 @@ class FakeConfirmtkt:
         # what the frontend posts: trainList pre-filtered to the target train
         body = json.dumps({"data": {"trainList": listed}})
         return FetchResult(fetch_id=fetch_id, status=200, body=body)
+
+    def live(self, board: str, alight: str, date: dt.date, fetch_id: str) -> FetchResult:
+        """fetchAvailability, as the frontend strips it; fills confirmtkt's cache."""
+        self.live_calls.append((board, alight, date))
+        origin = self.origin_for(board, date)
+        if (board, alight) in self.live_fail or origin is None:
+            return FetchResult(fetch_id=fetch_id, status=200, body=json.dumps({"data": {}}))
+        self.filled.add((board, alight, date))
+        status = self.live_status or self.availability_for(origin)
+        body = {"data": {"avlDayList": [{"availablityStatus": status,
+                                          "predictionPercentage": "100"}],
+                         "fareInfo": {"totalFare": 300.0}}}
+        return FetchResult(fetch_id=fetch_id, status=200, body=json.dumps(body))
 
 
 async def run_search(
@@ -159,8 +184,10 @@ async def run_search(
     destination: str,
     date: dt.date,
     travel_class: TravelClass = TravelClass.SL,
+    live_verify: bool = False,
 ):
-    """Drive the seat-finder manifest loop like the frontend does."""
+    """Drive the seat-finder manifest loop like the frontend does. Verify fetches
+    get no answer unless `live_verify`."""
     await RouteCache.put(route.train_number, route)
     resp = await seat_finder.create_manifest(
         route.train_number,
@@ -178,10 +205,13 @@ async def run_search(
         rounds += 1
         results = [
             FetchResult(fetch_id=f.fetch_id, status=200, body="")  # no live override
-            if f.fetch_id.startswith("verify:")
+            if f.fetch_id.startswith("verify:") and not live_verify
             else fake.respond(f.url, f.fetch_id)
             for f in resp.fetches
         ]
+        fake.verify_calls = getattr(fake, "verify_calls", 0) + sum(
+            f.fetch_id.startswith("verify:") for f in resp.fetches
+        )
         resp = await seat_finder.process_manifest(resp.manifest_id, results)
     return resp, rounds
 

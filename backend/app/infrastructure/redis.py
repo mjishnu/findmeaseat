@@ -100,6 +100,19 @@ class HashRedisCache[T](BaseRedisCache[T]):
         pipe.expire(key, self.ttl)
         await pipe.execute()
 
+    async def update_field(self, *parts_field_value: Any) -> None:
+        """Overwrite one field of an existing hash, keeping its TTL. A no-op if the
+        hash has expired: recreating it would leave a partial, TTL-less hash."""
+        *parts, field, value = parts_field_value
+        await get_redis().eval(
+            "if redis.call('EXISTS', KEYS[1]) == 1 then"
+            " return redis.call('HSET', KEYS[1], ARGV[1], ARGV[2]) end return 0",
+            1,
+            self._key(*parts),
+            str(field),
+            self.serializer(value),
+        )
+
     async def put_many(self, *parts_and_mapping: Any) -> None:
         """Set multiple fields in the hash at once and refresh key TTL."""
         *parts, mapping = parts_and_mapping

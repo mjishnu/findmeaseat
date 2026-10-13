@@ -220,6 +220,10 @@ async def test_placeholder_only_search_reports_no_data():
         m.manifest_id,
         [FetchResult(fetch_id=f.fetch_id, status=200, body=placeholder(f.fetch_id)) for f in m.fetches],
     )
+    while isinstance(res, ManifestResponse):  # live checks fail too
+        res = await seat_finder.process_manifest(
+            res.manifest_id, [FetchResult(fetch_id=f.fetch_id, status=0, body="") for f in res.fetches]
+        )
     assert res.pairs_no_data == res.pairs_evaluated
     assert res.recommendations == []
 
